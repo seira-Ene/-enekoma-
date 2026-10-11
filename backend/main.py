@@ -791,38 +791,69 @@ SYSTEM_PROMPT = """
 
 ## 役割と概要
 あなたは日本大学文理学部（CHS）完全対応の総合キャンパスAIアシスタント「EneKoma（エネコマ）」です。
-1つのチャットボックスを通して、学生からのあらゆる質問に対し、「構内ナビ」「履修・卒業判定」「施設営業時間」を横断的かつ正確に回答してください。
+1つのチャットボックスを通して、学生からの問い合わせ（教室・自販機検索、営業時間、履修・卒業要件、GPAシミュレーション、成績表画像の自動解析など）に対し、以下の【統合ナレッジベース】および【ユーザープロフィール情報】に基づいて柔軟かつ正確に回答してください。
 
 ## 【最優先動作ルール】
-1. 言い回しの柔軟な意図解釈: 「図書室あいてる？」「421ってどこだっけ」「単位足りてるかな」「3306」など、どのような言い回しでも正確に対応。
-2. 単体キーワード・教室番号直打ちへの即時回答: 「3306」「421」「コーラ」などに即座にダイレクト回答。
-3. 4桁教室番号の正確な保持（省略厳禁）: 「3306」等を「306」と省略せず必ず「3号館 3306教室」と入力通りの番号で回答。
-4. 表示領域での文字途切れ防止（12文字以内ラベル）: 「表示用：[12文字以内ラベル]」と「詳細案内：[詳細メッセージ]」を分けて出力。
+1. 言い回しの柔軟な意図解釈（API活用）: 自由な言い回しやファイル添付に対し、意図を正しく汲み取って回答。
+2. 成績表画像（マルチモーダル / OCR解析）からの自動入力・補完: 履修済み科目名、修得単位数、各科目評価（S〜F）、現在GPA、総修得単位数を読み取り要約を出力。末尾に ```profile_update {"totalEarnedCredits": X, "currentGpa": Y} ``` を出力。
+3. 単位・講義不足判定の優先順位（厳格）:
+   優先度 1（最優先）：所属学科の必修科目（および選択必修科目）の未履修チェック
+   優先度 2：選択しているコース（複数選択可）および副専攻（複数選択可）の到達要件・不足講義チェック
+   優先度 3：卒業に必要なその他単位（自由選択区分等・計124単位基準）の不足チェック
+4. GPA達成シミュレーション（S〜F評価判定）: S(4.0)/A(3.0)/B(2.0)/C(1.0)/F(0.0)に基づき、目標GPA到達に必要な今期の評価目安（パターンA: S評価/A評価科目数、パターンB: 平均ポイント）を提示。
+5. 4桁教室番号の正確な保持（省略厳禁）: 「3306」等は必ず「3号館 3306教室」と表記。
+6. 表示領域での文字途切れ防止: 構内ナビでは「表示用：[12文字以内ラベル]」と「詳細案内：[詳細メッセージ]」を分けて出力。
 
-## 【統合ナレッジ】
-- 1号館（122-139, 4F/5Fトイレなし）、2号館（自販機・ゴミ箱なし）、3号館（01-05男子側、06-10女子側）、4号館（411-444、給水所は1Fのみ利用可能）
-- 自販機：4号館1Fサントリー（ジハンピ、天然水80円、ZONe80円）、3号館1F食堂側（白水、白スポ、青、赤コカ・コーラ[Visa/Mastercardクレカタッチ決済対応]）
-- 施設営業時間：図書館（平日9-20時、土曜9-19時）、コンセ（平日9-18時、土曜9-13時）、LC（平日8-18時、土曜8-17時）、教務課（平日9-17時、土曜9-13時）、資料館（平日10-17時、土曜10-13時）
-- 履修卒業：卒業要件124単位。6コース科目（教職・司書教諭→教職センター、司書・学芸員・社会教育主事・日本語教育→教務課）。
+## 【統合ナレッジベース】
+- 卒業要件: 全学科共通 124単位。GP換算: S(4.0), A(3.0), B(2.0), C(1.0), F(0.0)。
+- コース窓口: 教職・司書教諭（教職センター） / 司書・学芸員・社会教育主事・日本語教育（教務課）。
+- 教室: 1号館（122-139, 4F/5Fトイレなし）、2号館（自販機・ゴミ箱なし）、3号館（01-05男子側、06-10女子側）、4号館（411-444、給水所は1Fのみ利用可）。
+- 自販機: 4号館1Fサントリー（ジハンピ、天然水80円、ZONe80円）、3号館1F（白水、白スポ、青、赤コカ・コーラ[クレカタッチ決済可]）。
+- 営業時間: 図書館（平日9-20時、土曜9-19時）、コンセ（平日9-18時、土曜9-13時）、LC（平日8-18時、土曜8-17時）、教務課（平日9-17時、土曜9-13時）、資料館（平日10-17時、土曜10-13時）。
 """
 
-def call_gemini_api(query: str, history: List[Dict[str, Any]], api_key: str) -> Optional[str]:
+def call_gemini_api(query: str, history: List[Dict[str, Any]], api_key: str, image: Optional[Dict[str, Any]] = None, user_profile: Optional[Dict[str, Any]] = None) -> Optional[str]:
     try:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
         contents = []
         for h in history:
             role = "user" if h.get("sender") == "user" else "model"
             contents.append({"role": role, "parts": [{"text": h.get("text", "")}]})
-        contents.append({"role": "user", "parts": [{"text": query}]})
+        
+        user_parts: List[Dict[str, Any]] = []
+        profile_context = ""
+        if user_profile:
+            profile_context = (
+                f"【ユーザープロフィール】\\n"
+                f"学科: {user_profile.get('department')}, 学年: {user_profile.get('grade')}年, "
+                f"修得単位: {user_profile.get('currentCredits')}単位, 現在GPA: {user_profile.get('currentGpa')}, "
+                f"目標GPA: {user_profile.get('targetGpa')}, 今期履修: {user_profile.get('semesterCredits')}単位, "
+                f"選択コース: {', '.join(user_profile.get('selectedCourses', []))}, "
+                f"選択副専攻: {', '.join(user_profile.get('selectedMinors', []))}\\n\\n"
+            )
+        
+        prompt_text = f"{profile_context}{query or '添付された成績表画像をマルチモーダル解析し、単位・GPA・評価を読み取ってください。'}"
+        user_parts.append({"text": prompt_text})
+        
+        if image and image.get("data"):
+            clean_b64 = re.sub(r"^data:[^;]+;base64,", "", image["data"])
+            user_parts.append({
+                "inline_data": {
+                    "mime_type": image.get("mimeType", "image/jpeg"),
+                    "data": clean_b64
+                }
+            })
+            
+        contents.append({"role": "user", "parts": user_parts})
         
         payload = {
             "system_instruction": {"parts": [{"text": SYSTEM_PROMPT.strip()}]},
             "contents": contents,
-            "generationConfig": {"temperature": 0.2, "maxOutputTokens": 1200}
+            "generationConfig": {"temperature": 0.2, "maxOutputTokens": 1600}
         }
         req_data = json.dumps(payload).encode("utf-8")
         req = urllib.request.Request(url, data=req_data, headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with urllib.request.urlopen(req, timeout=12) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             cand = data.get("candidates", [])
             if cand:
@@ -832,9 +863,11 @@ def call_gemini_api(query: str, history: List[Dict[str, Any]], api_key: str) -> 
     return None
 
 class ChatRequest(BaseModel):
-    query: str
+    query: Optional[str] = ""
     history: Optional[List[Dict[str, Any]]] = []
     apiKey: Optional[str] = None
+    image: Optional[Dict[str, Any]] = None
+    userProfile: Optional[Dict[str, Any]] = None
 
 def answer_navigator_query(q: str) -> str:
     query = q.strip()
@@ -1241,9 +1274,16 @@ def unified_chat(req: ChatRequest):
     q = (req.query or "").strip()
     api_k = (req.apiKey or os.environ.get("GEMINI_API_KEY", "")).strip()
     if api_k:
-        gemini_reply = call_gemini_api(q, req.history or [], api_k)
+        gemini_reply = call_gemini_api(q, req.history or [], api_k, req.image, req.userProfile)
         if gemini_reply:
-            return {"reply": gemini_reply, "source": "gemini"}
+            profile_update = None
+            m = re.search(r"```profile_update\s*([\s\S]*?)\s*```", gemini_reply)
+            if m:
+                try:
+                    profile_update = json.loads(m.group(1))
+                except Exception:
+                    pass
+            return {"reply": gemini_reply, "source": "gemini", "profileUpdate": profile_update}
 
     reply = answer_navigator_query(q)
     return {"reply": reply, "source": "local"}
