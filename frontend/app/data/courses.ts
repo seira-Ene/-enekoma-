@@ -28,13 +28,11 @@ export function getCompactRoomLabel(room: string | undefined): string {
     return `8号館${r}`;
   }
 
-  // 3号館: 4桁（3〇〇〇）
+  // 3号館: 4桁（3〇〇〇）※番号を省略せず「3号館3306(女子側)」とする
   if (/^3\d{3}$/.test(r)) {
-    const floor = r[1];
     const sub = parseInt(r.slice(2), 10);
     const side = (sub >= 1 && sub <= 5) ? '男子側' : (sub >= 6 && sub <= 10 ? '女子側' : '');
-    const roomNum = `${floor}${r.slice(2)}`;
-    return side ? `3号館${roomNum}(${side})` : `3号館${roomNum}`;
+    return side ? `3号館${r}(${side})` : `3号館${r}`;
   }
 
   // 4号館: 3桁（4〇〇）
@@ -55,9 +53,9 @@ export function getCompactRoomLabel(room: string | undefined): string {
     return side ? `1号館${r}(${side})` : `1号館${r}`;
   }
 
-  // 2号館
+  // 2号館: 4桁（2〇〇〇）※番号を省略せず「2号館2301」とする
   if (/^2\d{3}$/.test(r)) {
-    return `2号館${r.slice(1)}`;
+    return `2号館${r}`;
   }
 
   // 特殊教室の短縮

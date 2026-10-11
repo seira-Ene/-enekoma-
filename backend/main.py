@@ -586,10 +586,9 @@ def get_room_short_label(room: str) -> str:
     if r == "444": return "4号館444(女子側)"
     m3 = re.match(r"^3([1-5])(\d{2})$", r)
     if m3:
-        fl = m3.group(1)
         sub = int(m3.group(2))
         side = "男子側" if 1 <= sub <= 5 else "女子側" if 6 <= sub <= 10 else "中央"
-        return f"3号館{fl}{sub:02d}({side})"
+        return f"3号館{r}({side})"
     if r in ["122", "123", "124"]: return f"1号館{r}(左側)"
     if r in ["125", "126", "127A", "127B"]: return f"1号館{r}(右側)"
     if r == "130": return "1号館130(正面)"
@@ -598,7 +597,7 @@ def get_room_short_label(room: str) -> str:
     if r == "141": return "1号館141(4F)"
     if r == "151": return "1号館151(5F)"
     if r.startswith("1") and len(r) == 3: return f"1号館{r}"
-    if r.startswith("2") and len(r) == 4: return f"2号館{r[1:]}"
+    if r.startswith("2") and len(r) == 4: return f"2号館{r}"
     if "8B" in r or "88" in r:
         clean = r.replace("88", "8B")
         return f"8号館{clean.replace('8号館', '')[:4]}"
@@ -783,9 +782,59 @@ VENDING_MACHINES_DB = [
 
 VENDING_MACHINES = VENDING_MACHINES_DB
 
+import json
+import urllib.request
+import os
+
+SYSTEM_PROMPT = """
+# システムプロンプト：EneKoma（エネコマ）AI統合アシスタント
+
+## 役割と概要
+あなたは日本大学文理学部（CHS）完全対応の総合キャンパスAIアシスタント「EneKoma（エネコマ）」です。
+1つのチャットボックスを通して、学生からのあらゆる質問に対し、「構内ナビ」「履修・卒業判定」「施設営業時間」を横断的かつ正確に回答してください。
+
+## 【最優先動作ルール】
+1. 言い回しの柔軟な意図解釈: 「図書室あいてる？」「421ってどこだっけ」「単位足りてるかな」「3306」など、どのような言い回しでも正確に対応。
+2. 単体キーワード・教室番号直打ちへの即時回答: 「3306」「421」「コーラ」などに即座にダイレクト回答。
+3. 4桁教室番号の正確な保持（省略厳禁）: 「3306」等を「306」と省略せず必ず「3号館 3306教室」と入力通りの番号で回答。
+4. 表示領域での文字途切れ防止（12文字以内ラベル）: 「表示用：[12文字以内ラベル]」と「詳細案内：[詳細メッセージ]」を分けて出力。
+
+## 【統合ナレッジ】
+- 1号館（122-139, 4F/5Fトイレなし）、2号館（自販機・ゴミ箱なし）、3号館（01-05男子側、06-10女子側）、4号館（411-444、給水所は1Fのみ利用可能）
+- 自販機：4号館1Fサントリー（ジハンピ、天然水80円、ZONe80円）、3号館1F食堂側（白水、白スポ、青、赤コカ・コーラ[Visa/Mastercardクレカタッチ決済対応]）
+- 施設営業時間：図書館（平日9-20時、土曜9-19時）、コンセ（平日9-18時、土曜9-13時）、LC（平日8-18時、土曜8-17時）、教務課（平日9-17時、土曜9-13時）、資料館（平日10-17時、土曜10-13時）
+- 履修卒業：卒業要件124単位。6コース科目（教職・司書教諭→教職センター、司書・学芸員・社会教育主事・日本語教育→教務課）。
+"""
+
+def call_gemini_api(query: str, history: List[Dict[str, Any]], api_key: str) -> Optional[str]:
+    try:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+        contents = []
+        for h in history:
+            role = "user" if h.get("sender") == "user" else "model"
+            contents.append({"role": role, "parts": [{"text": h.get("text", "")}]})
+        contents.append({"role": "user", "parts": [{"text": query}]})
+        
+        payload = {
+            "system_instruction": {"parts": [{"text": SYSTEM_PROMPT.strip()}]},
+            "contents": contents,
+            "generationConfig": {"temperature": 0.2, "maxOutputTokens": 1200}
+        }
+        req_data = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(url, data=req_data, headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            cand = data.get("candidates", [])
+            if cand:
+                return cand[0].get("content", {}).get("parts", [{}])[0].get("text")
+    except Exception as e:
+        print(f"Gemini API error: {e}")
+    return None
+
 class ChatRequest(BaseModel):
     query: str
-    history: Optional[List[Dict[str, str]]] = []
+    history: Optional[List[Dict[str, Any]]] = []
+    apiKey: Optional[str] = None
 
 def answer_navigator_query(q: str) -> str:
     query = q.strip()
@@ -836,6 +885,115 @@ def answer_navigator_query(q: str) -> str:
                 pos_info = f" ({it['pos']})" if "pos" in it else ""
                 lines.append(f"・{it['name']} ({p_str}){pos_info}")
         return "\n".join(lines).strip()
+
+    # 1.5. キャンパス施設 営業時間案内
+    if any(k in q_lower for k in ["図書館", "図書室", "本を借りる", "地下書庫"]):
+        return (
+            "【日本大学文理学部図書館（図書館棟）営業時間】\n"
+            "・月〜金（平日）：09:00 - 20:00\n"
+            "・土曜日：09:00 - 19:00\n"
+            "・日曜・祝日：休館（授業実施日を除く）\n"
+            "※地下書庫への入庫および貸出手続きは閉館30分前までです。"
+        )
+
+    if any(k in q_lower for k in ["コンピュータセンター", "コンセ", "cc", "wifi", "wi-fi", "学内pc", "パソコン室"]):
+        return (
+            "【コンピュータセンター受付（3号館）営業時間】\n"
+            "・月〜金（平日）：09:00 - 18:00\n"
+            "・土曜日：09:00 - 13:00\n"
+            "・日曜・祝日：休業\n"
+            "※アカウント発行や学内Wi-Fi（CHS-Wi-Fi）の問い合わせ・トラブル対応を行っています。"
+        )
+
+    if any(k in q_lower for k in ["ラーニングコモンズ", "ラーニング・コモンズ", "コモンズ", "lc"]):
+        return (
+            "【ラーニング・コモンズ（本館1階）営業時間】\n"
+            "・月〜金（平日）：08:00 - 18:00（サポートデスク対応 10:00 - 18:00）\n"
+            "・土曜日：08:00 - 17:00（サポートデスク対応 09:00 - 13:00）\n"
+            "・日曜・祝日：休館\n"
+            "※グループ学習や自習、PC利用、プレゼン準備に利用できます。"
+        )
+
+    if any(k in q_lower for k in ["教務", "教務課", "事務", "事務窓口", "証明書", "学務"]):
+        return (
+            "【事務窓口・教務課等（本館1階事務室）受付時間】\n"
+            "・月〜金（平日）：09:00 - 17:00\n"
+            "・土曜日：09:00 - 13:00\n"
+            "・日曜・祝日：休み\n"
+            "※履修相談や各種届出を受付。証明書自動発行機は閉口15分前まで利用可能です。"
+        )
+
+    if any(k in q_lower for k in ["資料館", "博物館"]):
+        return (
+            "【日本大学文理学部資料館（8号館）開館時間】\n"
+            "・月〜金（平日）：10:00 - 17:00\n"
+            "・土曜日：10:00 - 13:00\n"
+            "・日曜・祝日：休館（入館無料）\n"
+            "※考古・歴史・民俗・学術資料等の展示を行っています。"
+        )
+
+    # 1.6. 履修・卒業ナビ ＆ 6コース科目案内
+    if any(k in q_lower for k in ["教職", "教員免許"]):
+        return (
+            "【教職コース（全学科共通）】\n"
+            "・概要: 中学校・高等学校教諭一種免許状（全学科共通）や特別支援学校教諭免許状（教育学科のみ）の取得を目指すコースです。\n"
+            "・申請・相談窓口: **教職センター**（本館）\n"
+            "※コース科目の修得単位は卒業要件の「自由選択区分」に算入可能です（各教科教育法・実習・実践演習等の一部実習科目を除く）。"
+        )
+
+    if "司書教諭" in q_lower:
+        return (
+            "【司書教諭コース（全学科共通）】\n"
+            "・概要: 小・中・高等学校等の学校図書館で専門業務に従事する教諭資格です。\n"
+            "・申請・相談窓口: **教職センター**（本館）\n"
+            "※教員免許状の取得が前提となります。修得単位は「自由選択区分」に算入可能です。"
+        )
+
+    if any(k in q_lower for k in ["司書コース", "司書資格", "図書館司書"]):
+        return (
+            "【司書コース（全学科共通）】\n"
+            "・概要: 公共図書館や専門機関で図書・資料の収集・分類・情報サービスを行う専門資格です。\n"
+            "・申請・相談窓口: **教務課**（本館1階事務室）\n"
+            "※修得単位は「自由選択区分」に算入可能です。GPA算出対象に含まれます。"
+        )
+
+    if any(k in q_lower for k in ["学芸員", "博物館学芸員"]):
+        return (
+            "【学芸員コース（全学科共通）】\n"
+            "・概要: 博物館・美術館・資料館などで資料の収集・保管・展示・調査研究を行う国家資格です。\n"
+            "・申請・相談窓口: **教務課**（本館1階事務室）\n"
+            "※修得単位は「自由選択区分」に算入可能。3・4年次に資料館実習等があります。"
+        )
+
+    if any(k in q_lower for k in ["社会教育", "社会教育主事", "社会教育士"]):
+        return (
+            "【社会教育主事コース（全学科共通）】\n"
+            "・概要: 公民館や生涯学習施設で市民の学習活動支援や地域コミュニティ形成を支援する指導者資格です。\n"
+            "・申請・相談窓口: **教務課**（本館1階事務室）\n"
+            "※修得単位は「自由選択区分」に算入可能です。"
+        )
+
+    if any(k in q_lower for k in ["日本語教育", "日本語教員"]):
+        return (
+            "【日本語教育コース（全学科共通）】\n"
+            "・概要: 国内外で外国人留学生や学習者に日本語を教える専門知識・指導法を修得するコースです。\n"
+            "・申請・相談窓口: **教務課**（本館1階事務室）\n"
+            "※修得単位は「自由選択区分」に算入可能です。"
+        )
+
+    if any(k in q_lower for k in ["卒業要件", "卒業要件単位", "卒業単位", "何単位で卒業"]):
+        return (
+            "【日本大学文理学部 卒業要件単位】\n"
+            "・卒業必要単位数: 全18学科共通で **124単位** です。\n"
+            "・主要科目区分:\n"
+            "  - 全学共通（総合体育等）：2単位必修\n"
+            "  - 総合教育科目：12単位必修\n"
+            "  - 外国語教育科目：8〜18単位（学科により異なる）\n"
+            "  - 基礎教育科目：5単位必修\n"
+            "  - 学科専門教育科目（必修・選択）\n"
+            "  - 自由選択区分（6コース科目等の単位算入可能）\n\n"
+            "現在の修得単位数を「情報科学科 80単位」のように入力していただければ、残り必要単位数とアドバイスを回答します！"
+        )
 
     # 2. 給水所・ゴミ箱・トイレ・決済等の設備検索
     if any(k in q_lower for k in ["給水", "冷水機", "ウォーターサーバー"]):
@@ -926,13 +1084,12 @@ def answer_navigator_query(q: str) -> str:
         elif r.startswith("3") and len(r) == 4:
             fl = r[1]
             sub = int(r[2:])
-            sub_str = r[1:]
             if 1 <= sub <= 5:
-                detail = f"3号館{sub_str}教室は 3号館 {fl}階 です。エスカレーターを出て右側（エレベーターを出て左側）の 男子トイレ側 にあります。ゴミ箱は各階に設置されています。"
+                detail = f"{r}教室は 3号館 {fl}階 の {r}教室 です。エスカレーターを出て右側（エレベーターを出て左側）の 男子トイレ側 にあります。ゴミ箱は各階に設置されています。"
             elif 6 <= sub <= 10:
-                detail = f"3号館{sub_str}教室は 3号館 {fl}階 です。エスカレーターを出て左側（エレベーターを出て右側）の 女子トイレ側 にあります。ゴミ箱は各階に設置されています。"
+                detail = f"{r}教室は 3号館 {fl}階 の {r}教室 です。エスカレーターを出て左側（エレベーターを出て右側）の 女子トイレ側 にあります。ゴミ箱は各階に設置されています。"
             else:
-                detail = f"3号館{sub_str}教室は 3号館 {fl}階 です。ゴミ箱は各階に設置されています。"
+                detail = f"{r}教室は 3号館 {fl}階 の {r}教室 です。ゴミ箱は各階に設置されています。"
         elif r in ["122", "123", "124"]:
             detail = f"1号館{r}教室は 1号館 2階 です。階段を登って左側（奥に女子トイレ）にあります。ゴミ箱は各階に設置されています。"
         elif r in ["125", "126", "127A", "127B"]:
@@ -1079,7 +1236,18 @@ def answer_navigator_query(q: str) -> str:
         "• 「クレカ」または「PayPay」"
     )
 
+@app.post("/api/chat")
+def unified_chat(req: ChatRequest):
+    q = (req.query or "").strip()
+    api_k = (req.apiKey or os.environ.get("GEMINI_API_KEY", "")).strip()
+    if api_k:
+        gemini_reply = call_gemini_api(q, req.history or [], api_k)
+        if gemini_reply:
+            return {"reply": gemini_reply, "source": "gemini"}
+
+    reply = answer_navigator_query(q)
+    return {"reply": reply, "source": "local"}
+
 @app.post("/api/navigator/chat")
 def navigator_chat(req: ChatRequest):
-    reply = answer_navigator_query(req.query)
-    return {"reply": reply}
+    return unified_chat(req)
