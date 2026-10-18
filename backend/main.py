@@ -869,9 +869,122 @@ class ChatRequest(BaseModel):
     image: Optional[Dict[str, Any]] = None
     userProfile: Optional[Dict[str, Any]] = None
 
-def answer_navigator_query(q: str) -> str:
+def answer_navigator_query(q: str, user_profile: Optional[Dict[str, Any]] = None) -> str:
     query = q.strip()
     q_lower = query.lower()
+
+    # 0.1. CAP制（履修登録上限・要覧 p.35-36）
+    if any(k in q_lower for k in ["上限", "cap", "何単位まで履修", "年間単位", "履修登録上限", "40単位"]):
+        return (
+            "**【履修科目登録単位数の上限（CAP制・『学部要覧』p.35-36準拠）】**\n\n"
+            "文理学部では、学習効果向上のため**年間履修登録単位数の上限を40単位**と定めています（※修得単位数ではなく履修登録単位数です）。\n\n"
+            "■ **40単位の上限に含まれない科目（要覧 p.35）**：\n"
+            "・外国語教育科目の「中国語(逆)」再履修科目\n"
+            "・不定期に開講する授業（休暇中に行われる集中授業等）\n"
+            "・海外語学研修、海外文化交流\n"
+            "・コース科目（司書教諭、司書、学芸員、社会教育主事、教職指定科目）\n"
+            "・教職コース履修上の他学科開講専門科目・他学科聴講科目\n"
+            "・その他所属学科が必要と認めた科目（学科専門科目一覧表でアンダーラインと＊が付いた科目）\n\n"
+            "■ **成績優秀者等に対する上限加算の特別措置（要覧 p.36）**：\n"
+            "・1年次前学期に16単位以上修得し、GPAが2.5以上 ➔ **1年次後学期において4単位加算（年間44単位）**\n"
+            "・前年度に20単位以上修得し、前年度のGPAが3.0以上 ➔ **年間で8単位の加算（年間48単位）**\n"
+            "・前年度に20単位以上修得し、前年度のGPAが2.5以上 ➔ **年間で6単位の加算（年間46単位）**\n"
+            "・前年度に20単位以上修得し、前年度のGPAが2.0以上 ➔ **年間で4単位の加算（年間44単位）**\n"
+            "・前年度に履修し再履修となった科目 ➔ **年間で上限10単位まで加算**"
+        )
+
+    # 0.2. GPAシミュレーション
+    if "gpa" in q_lower and any(k in q_lower for k in ["目標", "シミュレーション", "届く", "3.0", "計算"]):
+        cur_gpa = float(user_profile.get("currentGpa", 2.40)) if user_profile else 2.40
+        tgt_gpa = float(user_profile.get("targetGpa", 3.00)) if user_profile else 3.00
+        cur_cr = int(user_profile.get("currentCredits", 40)) if user_profile else 40
+        sem_cr = int(user_profile.get("semesterCredits", 16)) if user_profile else 16
+        tot_cr = cur_cr + sem_cr
+        needed_pts = (tot_cr * tgt_gpa) - (cur_cr * cur_gpa)
+        avg_gp = needed_pts / sem_cr if sem_cr > 0 else 0
+        num_courses = round(sem_cr / 2)
+        
+        if avg_gp > 4.0:
+            max_achievable = (cur_cr * cur_gpa + sem_cr * 4.0) / tot_cr if tot_cr > 0 else 0
+            return (
+                f"**【目標GPA達成シミュレーション（『学部要覧』p.38-39準拠）】**\n"
+                f"* **現在GPA**：{cur_gpa:.2f} ➔ **目標GPA**：{tgt_gpa:.2f}\n"
+                f"* **今期履修中**：{sem_cr}単位（約{num_courses}科目）\n\n"
+                f"⚠️ **【判定：今期単独での到達は数理的に不可能】**\n"
+                f"『学部要覧』p.39のGPA換算基準（S:4.0, A:3.0, B:2.0, C:1.0, D/E:0.0）に基づくと、今期履修中の{sem_cr}単位すべてで最高評価「S（4.0）」を獲得しても、今期末の最大GPAは **{max_achievable:.2f}** となり、目標の {tgt_gpa:.2f} には届きません。\n"
+                f"次年度以降の学期を含め、計画的にS・A評価を積み重ねる長期的な履修設計が必要です。"
+            )
+        
+        best_s = num_courses
+        best_a = 0
+        for s in range(num_courses, -1, -1):
+            a = num_courses - s
+            pts = s * 2 * 4.0 + a * 2 * 3.0
+            if pts >= needed_pts:
+                best_s = s
+                best_a = a
+                
+        diff = "S評価中心" if avg_gp >= 3.5 else "S・A評価中心" if avg_gp >= 2.5 else "B以上"
+        return (
+            f"**【目標GPA達成シミュレーション（『学部要覧』p.38-39準拠）】**\n"
+            f"* **現在GPA**：{cur_gpa:.2f} ➔ **目標GPA**：{tgt_gpa:.2f}\n"
+            f"* **今期履修中**：{sem_cr}単位（約{num_courses}科目）\n\n"
+            f"**【達成に必要な評価目安】**\n"
+            f"目標GPA（{tgt_gpa:.2f}）に到達するには、今期受けている{sem_cr}単位のうち：\n"
+            f"* **パターンA**：**S評価を {best_s}科目（{best_s * 2}単位）**、**A評価を {best_a}科目（{best_a * 2}単位）** 以上修得（B評価以下は不可）\n"
+            f"* **パターンB**：全科目で平均 **{max(1.0, avg_gp):.2f}ポイント以上**（判定：**{diff}**）が必要です。\n\n"
+            f"※『学部要覧』p.38-39の計算式 (4×S + 3×A + 2×B + 1×C) / 総履修単位(D,E含む) に基づき算出しています。"
+        )
+
+    # 0.3. 履修・不足講義チェック
+    if any(k in query for k in ["単位足りてる", "不足", "履修チェック", "要件チェック", "あと何単位", "必修"]):
+        dept = user_profile.get("department", "情報科学科") if user_profile else "情報科学科"
+        grade = user_profile.get("grade", 2) if user_profile else 2
+        earned = int(user_profile.get("currentCredits", 42)) if user_profile else 42
+        rem_tot = max(0, 124 - earned)
+        dept_info = CHS_GRADUATION_REQUIREMENTS.get(dept, CHS_GRADUATION_REQUIREMENTS["情報科学科"])
+        selected_courses = user_profile.get("selectedCourses", []) if user_profile else []
+        selected_minors = user_profile.get("selectedMinors", []) if user_profile else []
+        
+        lines = [
+            f"**【履修達成状況・不足講義案内（『学部要覧』公式準拠）】**",
+            f"🎓 **対象学科**: **{dept}**（{grade}年次）",
+            f"",
+            f"**1. 学科必修科目・先修条件（最優先）**：",
+            f"* **{dept}** の専門要件：専門必修 **{dept_info['major_req']}単位**、専門選択 **{dept_info['major_opt']}単位** が必要です。",
+            f"* 2年次終了時までに50単位以上、3年次終了時までに進級・ゼミ・卒論着手要件（所定単位数）を必ず満たしてください。",
+            f"",
+            f"**2. 選択コース・副専攻要件**："
+        ]
+        if selected_courses or selected_minors:
+            for c in selected_courses:
+                lines.append(f"* **［{c}］**：所定の指定科目修得が必要です。修得単位は卒業要件の「自由選択区分」に算入可能です（一部実習除く）。")
+            for m in selected_minors:
+                lines.append(f"* **［{m}］**：修了要件である16単位以上の指定科目修得に向けて計画的に履修してください。")
+        else:
+            lines.append("* 現在コース・副専攻の登録はありません。")
+        
+        lines.append(f"")
+        lines.append(f"**3. 卒業単位合計（要覧 p.31）**：")
+        lines.append(f"* 卒業要件（全18学科共通124単位・要覧 p.31）まで、残り **{rem_tot}単位** です（修得済: **{earned}単位**）。")
+        lines.append(f"* 全学共通（2単位）、総合教育（12単位・人文/社会/理学各2含む）、外国語（{dept_info['gaikokugo']}単位）、基礎教育（5単位）の各区分も充足させてください。")
+        return "\n".join(lines)
+
+    # 0.4. 副専攻全般
+    if "副専攻" in query:
+        return (
+            "**【文理学部の副専攻制度（全24種・要覧 p.180-192）】**\n\n"
+            "主専攻に加えて指定された科目を**16単位以上修得**し、卒業時に申請することで修了証書が授与されます（事前届出不要）。\n\n"
+            "■ **5つの学際副専攻（全学科対象）**:\n"
+            "1. グローバル・コミュニケーション副専攻 (p.190)\n"
+            "2. ダイバーシティ副専攻 (p.191)\n"
+            "3. データサイエンス副専攻 (p.191)\n"
+            "4. 科学リテラシー副専攻 (※理系6学科は不可・p.192)\n"
+            "5. 地域デザイン副専攻 (p.192)\n\n"
+            "■ **19の学科副専攻**:\n"
+            "哲学、史学、日本語日本文学、現代文化、中国言語文化、英語英文学、ドイツ語ヨーロッパ文化、社会学、福祉社会システム、特別ニーズ教育、体育学、心理学、地理学、地球科学、数学、情報科学、物理学、生命科学、化学の各副専攻。\n"
+            "※注意：所属学科と同一の学科副専攻は修了認定を受けられません（要覧 p.180）。"
+        )
 
     # 1. 価格帯検索判定（「80円」「100~110円」「100円以下」など）を最優先判定
     range_match = re.search(r"(\d{2,3})\s*[-~〜]\s*(\d{2,3})\s*円?", query)
@@ -1285,7 +1398,7 @@ def unified_chat(req: ChatRequest):
                     pass
             return {"reply": gemini_reply, "source": "gemini", "profileUpdate": profile_update}
 
-    reply = answer_navigator_query(q)
+    reply = answer_navigator_query(q, req.userProfile)
     return {"reply": reply, "source": "local"}
 
 @app.post("/api/navigator/chat")

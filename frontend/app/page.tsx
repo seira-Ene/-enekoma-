@@ -1,6 +1,17 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
+import {
+  GAKUBU_YORAN_DEPARTMENTS,
+  GAKUBU_YORAN_COURSES,
+  GAKUBU_YORAN_ALL_24_MINORS,
+  GAKUBU_YORAN_CAP_RULES,
+  GAKUBU_YORAN_GPA_RULES,
+  analyzeAcademicDeficiency,
+  simulateGpaEngine,
+  CourseRecord,
+  UserProfileData
+} from '@/app/data/gakubuYoran';
 
 // メッセージ型定義
 interface ChatMessage {
@@ -14,15 +25,8 @@ interface ChatMessage {
 }
 
 // ユーザープロフィール型定義
-export interface UserProfile {
-  department: string;
-  grade: number;
-  currentCredits: number;
-  currentGpa: number;
-  targetGpa: number;
-  semesterCredits: number;
-  selectedCourses: string[];
-  selectedMinors: string[];
+export interface UserProfile extends UserProfileData {
+  completedCourses: CourseRecord[];
 }
 
 const DEFAULT_PROFILE: UserProfile = {
@@ -33,30 +37,24 @@ const DEFAULT_PROFILE: UserProfile = {
   targetGpa: 3.00,
   semesterCredits: 16,
   selectedCourses: ['教職コース'],
-  selectedMinors: []
+  selectedMinors: [],
+  completedCourses: [
+    { name: '自主創造の基礎', credits: 2, grade: 'S', year: 1 },
+    { name: '健康・スポーツ教育論', credits: 2, grade: 'A', year: 1 },
+    { name: '健康・スポーツ教育実習1', credits: 1, grade: 'S', year: 1 },
+    { name: '情報リテラシー', credits: 2, grade: 'A', year: 1 },
+    { name: '基礎プログラミング', credits: 2, grade: 'S', year: 1 },
+    { name: '基礎プログラミング演習', credits: 1, grade: 'A', year: 1 },
+    { name: '実践プログラミング', credits: 2, grade: 'B', year: 1 },
+    { name: '実践プログラミング演習', credits: 1, grade: 'A', year: 1 },
+    { name: '線形代数1', credits: 2, grade: 'B', year: 1 },
+    { name: '基礎微分積分1', credits: 2, grade: 'C', year: 1 },
+    { name: 'コンピューティング1', credits: 2, grade: 'A', year: 1 },
+    { name: '離散数学', credits: 2, grade: 'B', year: 1 }
+  ]
 };
 
-const CHS_DEPARTMENTS = [
-  '情報科学科', '国文学科', '英文学科', '哲学科', '史学科', '中国語中国文化学科',
-  'ドイツ文学科', '社会学科', '社会福祉学科', '教育学科', '体育学科', '心理学科',
-  '地理学科', '地球科学科', '数学科', '物理学科', '生命科学科', '化学科'
-];
-
-const ALL_COURSES = [
-  { name: '教職コース', window: '教職センター', desc: '中高教諭一種免許' },
-  { name: '司書教諭コース', window: '教職センター', desc: '学校図書館司書教諭' },
-  { name: '司書コース', window: '教務課', desc: '公共図書館司書資格' },
-  { name: '学芸員コース', window: '教務課', desc: '博物館・美術館学芸員' },
-  { name: '社会教育主事コース', window: '教務課', desc: '社会教育士' },
-  { name: '日本語教育コース', window: '教務課', desc: '日本語教員養成' },
-];
-
-const ALL_MINORS = [
-  'AI・データサイエンス副専攻',
-  'グローバル主専攻・副専攻',
-  '環境・サステナビリティ副専攻',
-  '心身ウェルネス副専攻'
-];
+const CHS_DEPARTMENTS = Object.keys(GAKUBU_YORAN_DEPARTMENTS);
 
 // 質問クイックチップの定義
 interface QuickChip {
@@ -66,9 +64,11 @@ interface QuickChip {
 }
 
 const QUICK_CHIPS: QuickChip[] = [
-  // 履修・卒業・GPA（新着＆重要）
+  // 履修・卒業・GPA
   { label: '📊 目標GPA3.0シミュレーション', query: '目標GPA3.0にするには今期どうすればいい？', category: 'academic' },
   { label: '📑 不足講義・単位チェック', query: '単位足りてる？不足講義を教えて', category: 'academic' },
+  { label: '📖 年間履修上限（CAP制・40単位）', query: '年間で何単位まで履修登録できる？（CAP制ルール）', category: 'academic' },
+  { label: '🌐 データサイエンス副専攻の要件', query: 'データサイエンス副専攻の要件と科目は？', category: 'academic' },
   { label: '📷 成績表を解析', query: 'この成績表画像を解析して、修得単位と現在GPAを読み取って', category: 'academic' },
   { label: '🍎 教職コースの要件', query: '教職コースの要件と申請窓口は？', category: 'academic' },
   { label: '🎓 卒業に必要な総単位数', query: '卒業に必要な総単位数は？', category: 'academic' },
@@ -107,6 +107,7 @@ export default function UnifiedAssistantPage() {
   // ユーザープロフィール
   const [userProfile, setUserProfile] = useState<UserProfile>(DEFAULT_PROFILE);
   const [showProfileModal, setShowProfileModal] = useState(false);
+  const [profileTab, setProfileTab] = useState<'basic' | 'reqCourses' | 'courses' | 'minors'>('basic');
   const [profileNotification, setProfileNotification] = useState<string | null>(null);
 
   // API設定モーダル
@@ -117,7 +118,7 @@ export default function UnifiedAssistantPage() {
 
   // 学内早見表モーダル
   const [showDrawer, setShowDrawer] = useState(false);
-  const [drawerTab, setDrawerTab] = useState<'credits' | 'rooms' | 'vending' | 'hours'>('credits');
+  const [drawerTab, setDrawerTab] = useState<'credits' | 'courses' | 'minors' | 'rooms' | 'vending' | 'hours'>('credits');
 
   // カテゴリフィルター（チップ）
   const [activeChipCategory, setActiveChipCategory] = useState<'all' | 'academic' | 'navi' | 'hours'>('all');
@@ -160,8 +161,8 @@ export default function UnifiedAssistantPage() {
         {
           id: 'welcome',
           sender: 'assistant',
-          text: `こんにちは！日本大学文理学部（CHS）総合キャンパスAIアシスタント**「EneKoma（エネコマ）」**です 🌿\n\n1つのチャットボックスで、以下の質問・ご相談に横断対応します：\n\n・**📷 成績表画像の自動解析**: 📎から成績表の写真を送ると、修得単位・GPA・評価（S〜F）を自動読み取り＆プロフィールへ反映！\n・**📊 目標GPAシミュレーション**: 「目標GPA3.0にするには？」と聞くと、今期どの評価（S/A）を何科目取るべきかを具体的パターンで算出！\n・**📑 単位・不足講義チェック**: 優先度順（①学科必修 ➔ ②選択コース/副専攻 ➔ ③卒業124単位）で未修得科目を厳格診断！\n・**🏢 構内ナビ＆自販機**: 教室の場所（例: 「3306」「421」）、自販機商品（80円飲料、コーラ、クレカ決済）、給水所・トイレ・ゴミ箱\n・**🕒 施設営業時間**: 図書館、コンピュータセンター、ラーニング・コモンズ、教務課窓口、資料館\n\n💡 **Google Gemini API（無料）連携**: 右上の「⚙️ API設定」からキーを設定すると、画像のマルチモーダル読み取りや自由な言い回しにも強力に対応します！`,
-          shortLabel: 'EneKoma統合AI',
+          text: `こんにちは！日本大学文理学部（CHS）公式『学部要覧（令和7年度）』完全準拠のAIアシスタント**「EneKoma（エネコマ）」**です 🌿\n\n1つのチャットボックスで、以下の質問・ご相談にリアルタイムでお応えします：\n\n・**📑 単位・不足講義チェック**: 優先度順（①所属学科の必修科目 ➔ ②選択コース/副専攻 ➔ ③卒業124単位）で未修得講義を厳格判定！\n・**📊 目標GPAシミュレーション**: 「目標GPA3.0にするには？」と入力すると、今期受けるべき評価（S/A）の内訳を具体的パターンで算出！\n・**📷 成績表画像の自動解析**: 📎ボタンから成績通知書の写真を送ると、修得単位・GPA・評価（S〜F）を自動読み取り＆プロフィールへ即座に反映！\n・**📖 CAP制（年間40単位上限）**: 成績優秀者の上限加算措置（GPA2.5以上で+6単位、3.0以上で+8単位等）や除外科目を正確に案内！\n・**🏢 構内ナビ＆自販機**: 4桁教室番号（例: 「3306」「421」）、80円飲料・コーラ・クレカ決済対応自販機、給水所・ゴミ箱の場所\n・**🕒 施設営業時間**: 図書館（平日20時/土19時）、コンピュータセンター、ラーニング・コモンズ、教務課窓口\n\n💡 右上の「👤 プロフィール」から所属学科（全18学科）やコース、必修履修状況をいつでもカスタマイズできます！`,
+          shortLabel: 'EneKoma要覧AI',
           source: 'local',
           timestamp: new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })
         }
@@ -209,7 +210,6 @@ export default function UnifiedAssistantPage() {
       });
     };
     reader.readAsDataURL(file);
-    // リセット
     e.target.value = '';
   };
 
@@ -218,7 +218,6 @@ export default function UnifiedAssistantPage() {
     let shortLabel: string | undefined = undefined;
     let mainText = raw;
 
-    // profile_update JSONブロックの除去（画面表示をクリーンに保つ）
     mainText = mainText.replace(/```profile_update\s*[\s\S]*?```/g, '').trim();
 
     const labelMatch = mainText.match(/表示用[：:]\s*([^\n\r]+)/);
@@ -275,19 +274,29 @@ export default function UnifiedAssistantPage() {
       const rawReply = data.reply || '回答を取得できませんでした。';
       const { shortLabel, mainText } = parseResponse(rawReply);
 
-      // プロフィール自動更新の反映
+      // プロフィール自動更新の反映（成績表OCR解析等）
       if (data.profileUpdate) {
         const update = data.profileUpdate;
         const newCredits = update.totalEarnedCredits ?? userProfile.currentCredits;
         const newGpa = update.currentGpa ?? userProfile.currentGpa;
+        let newCompleted = userProfile.completedCourses;
+        if (Array.isArray(update.completedCourses) && update.completedCourses.length > 0) {
+          newCompleted = update.completedCourses;
+        }
+
         const updatedProf: UserProfile = {
           ...userProfile,
           currentCredits: newCredits,
-          currentGpa: newGpa
+          currentGpa: newGpa,
+          completedCourses: newCompleted
         };
         saveProfile(updatedProf);
-        setProfileNotification(`✨ 成績表から自動反映: 修得 ${newCredits}単位 / GPA ${newGpa.toFixed(2)}`);
-        setTimeout(() => setProfileNotification(null), 4000);
+        setProfileNotification(
+          `✨ 成績表から自動反映: 修得 ${newCredits}単位 / GPA ${newGpa.toFixed(2)}${
+            update.completedCourses ? ` / 読取科目 ${update.completedCourses.length}件` : ''
+          }`
+        );
+        setTimeout(() => setProfileNotification(null), 5000);
       }
 
       const assistantMessage: ChatMessage = {
@@ -347,7 +356,7 @@ export default function UnifiedAssistantPage() {
         {
           id: 'welcome_cleared',
           sender: 'assistant',
-          text: '履歴をクリアしました。成績表の画像、GPAシミュレーション、不足講義、教室、自販機など何でもお気軽にどうぞ！',
+          text: '履歴をクリアしました。成績表の写真、目標GPA、不足講義、教室場所、自販機など何でもお気軽に質問してください！',
           shortLabel: '準備完了',
           source: 'local',
           timestamp: new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })
@@ -369,6 +378,38 @@ export default function UnifiedAssistantPage() {
     }, 1200);
   };
 
+  // リアルタイム履修不足計算結果
+  const liveDeficiency = analyzeAcademicDeficiency(userProfile);
+  const liveDeptData = GAKUBU_YORAN_DEPARTMENTS[userProfile.department] || GAKUBU_YORAN_DEPARTMENTS['情報科学科'];
+  const liveGpaSim = simulateGpaEngine(
+    userProfile.currentCredits,
+    userProfile.currentGpa,
+    userProfile.targetGpa,
+    userProfile.semesterCredits
+  );
+
+  // 必修科目のトグルハンドラ
+  const toggleCourseCompleted = (courseName: string, credits: number, year: number) => {
+    const exists = userProfile.completedCourses.some((c) => c.name === courseName);
+    let updated: CourseRecord[];
+    let deltaCredits = 0;
+
+    if (exists) {
+      updated = userProfile.completedCourses.filter((c) => c.name !== courseName);
+      deltaCredits = -credits;
+    } else {
+      updated = [...userProfile.completedCourses, { name: courseName, credits, grade: 'S', year }];
+      deltaCredits = credits;
+    }
+
+    const newCredits = Math.max(0, userProfile.currentCredits + deltaCredits);
+    saveProfile({
+      ...userProfile,
+      currentCredits: newCredits,
+      completedCourses: updated
+    });
+  };
+
   // 表示するクイックチップのフィルタリング
   const filteredChips = QUICK_CHIPS.filter(
     (chip) => activeChipCategory === 'all' || chip.category === activeChipCategory
@@ -388,26 +429,26 @@ export default function UnifiedAssistantPage() {
             <div className="flex items-center space-x-2">
               <h1 className="text-base sm:text-lg font-bold tracking-tight text-slate-900">EneKoma</h1>
               <span className="text-[11px] px-2 py-0.5 rounded-full font-medium bg-emerald-100 text-emerald-800 border border-emerald-300">
-                文理学部 AI統合アシスタント
+                『学部要覧』公式AI
               </span>
             </div>
             <p className="text-[11px] text-slate-500 hidden sm:block">
-              構内ナビ・施設営業時間・GPA・履修卒業判定（成績表OCR対応）
+              日本大学文理学部 公式カリキュラム・GPA・卒業判定・構内ナビ
             </p>
           </div>
         </div>
 
         {/* ヘッダー右側ボタン群 */}
         <div className="flex items-center space-x-1.5 sm:space-x-2">
-          {/* プロフィールボタン（現在の設定を表示） */}
+          {/* プロフィールボタン（現在の学科・単位・GPAを表示） */}
           <button
             onClick={() => setShowProfileModal(true)}
-            className="flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 transition"
-            title="履修プロフィール・GPA設定"
+            className="flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 transition shadow-2xs"
+            title="履修プロフィール・必修チェック設定"
           >
             <span>👤</span>
             <span className="hidden md:inline font-bold">{userProfile.department} {userProfile.grade}年</span>
-            <span className="hidden lg:inline text-emerald-600 text-[11px]">| {userProfile.currentCredits}単位 (GPA {userProfile.currentGpa.toFixed(2)})</span>
+            <span className="hidden lg:inline text-emerald-600 text-[11px]">| {userProfile.currentCredits}/124単位 (GPA {userProfile.currentGpa.toFixed(2)})</span>
             <span className="md:hidden">プロフィール</span>
           </button>
 
@@ -417,7 +458,7 @@ export default function UnifiedAssistantPage() {
             className="flex items-center space-x-1 px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition"
           >
             <span>📋</span>
-            <span className="hidden sm:inline">学内早見表</span>
+            <span className="hidden sm:inline">要覧早見表</span>
           </button>
 
           {/* API設定ボタン */}
@@ -460,39 +501,43 @@ export default function UnifiedAssistantPage() {
         {messages.map((msg) => (
           <div
             key={msg.id}
-            className={`flex flex-col ${msg.sender === 'user' ? 'items-end' : 'items-start'}`}
+            className={`flex flex-col ${msg.sender === 'user' ? 'items-end' : 'items-start'} animate-fade-in`}
           >
-            {/* メッセージ吹き出し */}
             <div
-              className={`relative max-w-[92%] sm:max-w-[82%] rounded-2xl px-4 py-3 shadow-sm ${
+              className={`max-w-[88%] sm:max-w-[80%] rounded-2xl p-4 shadow-sm relative ${
                 msg.sender === 'user'
-                  ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-br-none'
+                  ? 'bg-emerald-600 text-white rounded-br-none'
                   : 'bg-white border border-slate-200 text-slate-800 rounded-bl-none'
               }`}
             >
-              {/* アシスタント側：表示用12文字ラベルの強調バッジ */}
-              {msg.sender === 'assistant' && msg.shortLabel && (
-                <div className="mb-2 flex items-center space-x-2">
-                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-50 text-emerald-800 border border-emerald-300">
-                    📍 {msg.shortLabel}
-                  </span>
-                  {msg.source === 'gemini' && (
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 border border-purple-200 font-semibold">
-                      ✨ Gemini AI
-                    </span>
-                  )}
-                  {msg.source === 'local' && (
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200 font-semibold">
-                      ⚡ 高精度エンジン
+              {/* アシスタントヘッダー */}
+              {msg.sender === 'assistant' && (
+                <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-100 text-xs">
+                  <div className="flex items-center space-x-1.5">
+                    <span className="font-bold text-emerald-800">EneKoma（学部要覧公式準拠）</span>
+                    {msg.source === 'gemini' ? (
+                      <span className="px-1.5 py-0.2 rounded bg-teal-100 text-teal-800 text-[10px] font-semibold">
+                        Gemini AI
+                      </span>
+                    ) : (
+                      <span className="px-1.5 py-0.2 rounded bg-slate-100 text-slate-600 text-[10px] font-semibold">
+                        公式要覧エンジン
+                      </span>
+                    )}
+                  </div>
+                  {msg.shortLabel && (
+                    <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 max-w-[140px] truncate">
+                      {msg.shortLabel}
                     </span>
                   )}
                 </div>
               )}
 
-              {/* 添付画像のプレビュー（ユーザー送信時） */}
+              {/* 画像プレビュー */}
               {msg.imagePreview && (
-                <div className="mb-2 rounded-xl overflow-hidden border border-white/20 max-w-xs shadow-xs">
-                  <img src={msg.imagePreview} alt="送信した画像" className="w-full h-auto max-h-48 object-cover" />
+                <div className="mb-2.5 rounded-lg overflow-hidden border border-black/10">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={msg.imagePreview} alt="送信画像" className="max-h-60 rounded-lg object-contain bg-black/5" />
                 </div>
               )}
 
@@ -530,7 +575,7 @@ export default function UnifiedAssistantPage() {
               <div className="w-2.5 h-2.5 bg-emerald-600 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
               <div className="w-2.5 h-2.5 bg-teal-600 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
               <div className="w-2.5 h-2.5 bg-emerald-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-              <span className="text-xs text-slate-500 ml-1">EneKomaが分析・回答を作成中...</span>
+              <span className="text-xs text-slate-500 ml-1">EneKomaが要覧基準で不足分析・回答を作成中...</span>
             </div>
           </div>
         )}
@@ -563,7 +608,7 @@ export default function UnifiedAssistantPage() {
                 : 'bg-purple-50 text-purple-800 hover:bg-purple-100'
             }`}
           >
-            🎓 GPA・履修・成績表
+            🎓 GPA・履修・副専攻
           </button>
           <button
             onClick={() => setActiveChipCategory('navi')}
@@ -601,33 +646,29 @@ export default function UnifiedAssistantPage() {
           ))}
         </div>
 
-        {/* 添付画像のプレビュー（送信前） */}
+        {/* 添付画像プレビューバナー */}
         {attachedImage && (
-          <div className="mb-2 p-2 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between animate-in fade-in">
-            <div className="flex items-center space-x-2.5">
-              <img
-                src={attachedImage.previewUrl}
-                alt="成績表プレビュー"
-                className="w-10 h-10 object-cover rounded-lg border border-emerald-300"
-              />
-              <div>
-                <div className="text-xs font-bold text-emerald-900">📷 成績表画像が選択されました</div>
-                <div className="text-[11px] text-emerald-700">送信するとAIが単位・GPA・科目を自動解析します</div>
+          <div className="mb-2 p-2 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={attachedImage.previewUrl} alt="添付画像" className="w-10 h-10 object-cover rounded-lg border border-slate-200" />
+              <div className="text-xs">
+                <div className="font-bold text-slate-800">成績表画像が添付されました</div>
+                <div className="text-slate-500 text-[11px]">送信するとAIが修得単位・GPA・評価を自動読み取りします</div>
               </div>
             </div>
             <button
               onClick={() => setAttachedImage(null)}
-              className="text-slate-400 hover:text-rose-600 p-1 text-sm font-bold"
-              title="添付を解除"
+              className="text-slate-400 hover:text-slate-700 text-sm px-2 py-1"
             >
               ✕
             </button>
           </div>
         )}
 
-        {/* チャット入力フォーム */}
-        <div className="flex items-end space-x-2 mt-1">
-          {/* 画像アップロードボタン */}
+        {/* 入力フォーム */}
+        <div className="flex items-end space-x-2">
+          {/* 画像添付ボタン */}
           <input
             type="file"
             ref={fileInputRef}
@@ -638,239 +679,438 @@ export default function UnifiedAssistantPage() {
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            disabled={isLoading}
-            className="h-11 px-3 rounded-2xl border border-slate-300 bg-slate-50 hover:bg-slate-100 text-slate-600 flex items-center justify-center transition shadow-xs flex-shrink-0"
-            title="成績表や通知書の写真を添付して自動読み取り"
+            className="p-2.5 rounded-xl border border-slate-300 hover:bg-slate-100 text-slate-600 transition"
+            title="成績表の写真を添付して自動読み取り"
           >
-            <span className="text-base">📷</span>
-            <span className="hidden sm:inline text-xs ml-1 font-semibold text-slate-700">成績表添付</span>
+            📷
           </button>
 
-          <div className="flex-1 relative bg-slate-50 border border-slate-300 rounded-2xl focus-within:border-emerald-500 focus-within:ring-2 focus-within:ring-emerald-200 transition">
+          {/* テキスト入力 */}
+          <div className="flex-1 relative">
             <textarea
               ref={textareaRef}
               rows={1}
               value={inputText}
               onChange={handleInputTextChange}
               onKeyDown={handleKeyDown}
-              placeholder="目標GPA3.0にするには？ / 単位足りてる？ / 3306 / 図書館営業時間..."
-              disabled={isLoading}
-              className="w-full bg-transparent px-4 py-3 text-sm sm:text-base outline-none resize-none max-h-40 text-slate-900 placeholder:text-slate-400"
+              placeholder="質問を入力（例: 単位足りてる？ / 目標GPA3.0 / 3306 / コーラ / 図書館）"
+              className="w-full resize-none px-4 py-2.5 text-sm sm:text-base border border-slate-300 rounded-2xl focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 bg-white shadow-2xs"
             />
           </div>
 
+          {/* 送信ボタン */}
           <button
             onClick={() => handleSend()}
             disabled={(!inputText.trim() && !attachedImage) || isLoading}
-            className={`h-11 px-5 rounded-2xl font-bold flex items-center justify-center transition shadow-md ${
-              (inputText.trim() || attachedImage) && !isLoading
-                ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white hover:opacity-90 active:scale-95'
-                : 'bg-slate-200 text-slate-400 cursor-not-allowed'
-            }`}
+            className="p-2.5 sm:px-5 sm:py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white rounded-2xl font-bold transition shadow-sm flex items-center justify-center"
           >
-            <span className="text-sm">送信</span>
-            <span className="ml-1 text-xs">🚀</span>
+            <span>送信</span>
           </button>
-        </div>
-
-        <div className="mt-1 flex items-center justify-between text-[11px] text-slate-400 px-1">
-          <span>Enterキーで送信 / Shift + Enterで改行</span>
-          <span>成績表の写真添付（マルチモーダルOCR解析）対応</span>
         </div>
       </div>
 
       {/* ==========================================
-          ユーザープロフィール ＆ GPA設定モーダル
+          プロフィール編集モーダル（全18学科・24副専攻・必修チェック）
       ========================================== */}
       {showProfileModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs">
-          <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full max-h-[90vh] flex flex-col border border-slate-200">
+          <div className="bg-white rounded-2xl shadow-xl max-w-2xl w-full max-h-[90vh] flex flex-col border border-slate-200 animate-in fade-in zoom-in-95">
+            {/* ヘッダー */}
             <div className="flex items-center justify-between p-4 border-b border-slate-100">
               <div className="flex items-center space-x-2">
                 <span className="text-xl">👤</span>
                 <div>
-                  <h3 className="text-base font-bold text-slate-900">履修プロフィール ＆ GPAシミュレーター設定</h3>
-                  <p className="text-xs text-slate-500">不足講義の分析やGPA達成目安の計算基準になります</p>
+                  <h3 className="text-base font-bold text-slate-900">学生履修プロフィール設定</h3>
+                  <p className="text-xs text-slate-500">『学部要覧（令和7年度）』基準データと完全連動</p>
                 </div>
               </div>
               <button
                 onClick={() => setShowProfileModal(false)}
-                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg"
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg text-lg"
               >
                 ✕
               </button>
             </div>
 
+            {/* モーダル内タブ切り替え */}
+            <div className="flex border-b border-slate-200 bg-slate-50 px-3 pt-2 space-x-1 overflow-x-auto no-scrollbar">
+              <button
+                onClick={() => setProfileTab('basic')}
+                className={`px-3 py-2 text-xs font-bold border-b-2 whitespace-nowrap transition ${
+                  profileTab === 'basic'
+                    ? 'border-emerald-600 text-emerald-800 bg-white rounded-t-lg'
+                    : 'border-transparent text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                1. 学科・GPA基本設定
+              </button>
+              <button
+                onClick={() => setProfileTab('reqCourses')}
+                className={`px-3 py-2 text-xs font-bold border-b-2 whitespace-nowrap transition ${
+                  profileTab === 'reqCourses'
+                    ? 'border-emerald-600 text-emerald-800 bg-white rounded-t-lg'
+                    : 'border-transparent text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                2. 📌 必修科目チェック ({liveDeficiency.missingMajorReqs.length === 0 ? '完修' : `残${liveDeficiency.missingMajorReqs.length}`})
+              </button>
+              <button
+                onClick={() => setProfileTab('courses')}
+                className={`px-3 py-2 text-xs font-bold border-b-2 whitespace-nowrap transition ${
+                  profileTab === 'courses'
+                    ? 'border-emerald-600 text-emerald-800 bg-white rounded-t-lg'
+                    : 'border-transparent text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                3. 🏅 資格コース ({userProfile.selectedCourses.length})
+              </button>
+              <button
+                onClick={() => setProfileTab('minors')}
+                className={`px-3 py-2 text-xs font-bold border-b-2 whitespace-nowrap transition ${
+                  profileTab === 'minors'
+                    ? 'border-emerald-600 text-emerald-800 bg-white rounded-t-lg'
+                    : 'border-transparent text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                4. 🌐 副専攻選択 (全24種)
+              </button>
+            </div>
+
+            {/* モーダルコンテンツ */}
             <div className="p-4 overflow-y-auto space-y-4 text-xs sm:text-sm text-slate-700">
-              {/* 成績表画像の直接アップロード誘導 */}
-              <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 flex items-center justify-between">
-                <div>
-                  <div className="font-bold text-emerald-900 text-xs flex items-center space-x-1">
-                    <span>📷 成績表画像から自動入力できます</span>
-                  </div>
-                  <p className="text-[11px] text-emerald-800 mt-0.5">
-                    チャット画面の「📷 成績表添付」ボタンから通知書を送るだけで自動入力されます！
-                  </p>
-                </div>
-              </div>
-
-              {/* 学科・学年 */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-bold text-slate-800 text-xs mb-1">所属学科:</label>
-                  <select
-                    value={userProfile.department}
-                    onChange={(e) => saveProfile({ ...userProfile, department: e.target.value })}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-xl bg-white text-xs sm:text-sm font-medium"
-                  >
-                    {CHS_DEPARTMENTS.map((dept) => (
-                      <option key={dept} value={dept}>{dept}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block font-bold text-slate-800 text-xs mb-1">学年:</label>
-                  <select
-                    value={userProfile.grade}
-                    onChange={(e) => saveProfile({ ...userProfile, grade: parseInt(e.target.value, 10) })}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-xl bg-white text-xs sm:text-sm font-medium"
-                  >
-                    {[1, 2, 3, 4].map((g) => (
-                      <option key={g} value={g}>{g}年</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              {/* 単位数・GPA */}
-              <div className="grid grid-cols-2 gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200">
-                <div>
-                  <label className="block font-bold text-slate-800 text-xs mb-1">現在の総修得単位数:</label>
-                  <div className="flex items-center space-x-1">
-                    <input
-                      type="number"
-                      min={0}
-                      max={160}
-                      value={userProfile.currentCredits}
-                      onChange={(e) => saveProfile({ ...userProfile, currentCredits: parseInt(e.target.value || '0', 10) })}
-                      className="w-full px-3 py-1.5 border border-slate-300 rounded-lg bg-white text-xs sm:text-sm"
-                    />
-                    <span className="text-xs text-slate-500 whitespace-nowrap">/ 124単位</span>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block font-bold text-slate-800 text-xs mb-1">今期履修中の単位数:</label>
-                  <div className="flex items-center space-x-1">
-                    <input
-                      type="number"
-                      min={0}
-                      max={30}
-                      value={userProfile.semesterCredits}
-                      onChange={(e) => saveProfile({ ...userProfile, semesterCredits: parseInt(e.target.value || '0', 10) })}
-                      className="w-full px-3 py-1.5 border border-slate-300 rounded-lg bg-white text-xs sm:text-sm"
-                    />
-                    <span className="text-xs text-slate-500 whitespace-nowrap">単位</span>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block font-bold text-slate-800 text-xs mb-1">現在のGPA:</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min={0}
-                    max={4.0}
-                    value={userProfile.currentGpa}
-                    onChange={(e) => saveProfile({ ...userProfile, currentGpa: parseFloat(e.target.value || '0') })}
-                    className="w-full px-3 py-1.5 border border-slate-300 rounded-lg bg-white text-xs sm:text-sm font-semibold"
-                  />
-                </div>
-
-                <div>
-                  <label className="block font-bold text-slate-800 text-xs mb-1">目標GPA:</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min={0}
-                    max={4.0}
-                    value={userProfile.targetGpa}
-                    onChange={(e) => saveProfile({ ...userProfile, targetGpa: parseFloat(e.target.value || '0') })}
-                    className="w-full px-3 py-1.5 border border-emerald-400 bg-emerald-50 text-emerald-900 rounded-lg text-xs sm:text-sm font-bold"
-                  />
-                </div>
-              </div>
-
-              {/* 選択コース（複数選択可） */}
-              <div>
-                <label className="block font-bold text-slate-800 text-xs mb-1.5">
-                  選択コース（複数選択・未選択可）:
-                </label>
-                <div className="grid grid-cols-2 gap-2">
-                  {ALL_COURSES.map((c) => {
-                    const isChecked = userProfile.selectedCourses.includes(c.name);
-                    return (
-                      <label
-                        key={c.name}
-                        className={`flex items-start space-x-2 p-2 rounded-lg border cursor-pointer transition ${
-                          isChecked ? 'bg-emerald-50 border-emerald-400 text-emerald-900' : 'bg-slate-50 border-slate-200 text-slate-700'
-                        }`}
+              {/* TAB 1: 基本情報 */}
+              {profileTab === 'basic' && (
+                <div className="space-y-4">
+                  {/* 学科・学年 */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block font-bold text-slate-800 text-xs mb-1">所属学科（全18学科）:</label>
+                      <select
+                        value={userProfile.department}
+                        onChange={(e) => saveProfile({ ...userProfile, department: e.target.value })}
+                        className="w-full px-3 py-2 border border-slate-300 rounded-xl bg-white text-xs sm:text-sm font-semibold"
                       >
-                        <input
-                          type="checkbox"
-                          checked={isChecked}
-                          onChange={(e) => {
-                            const updated = e.target.checked
-                              ? [...userProfile.selectedCourses, c.name]
-                              : userProfile.selectedCourses.filter((x) => x !== c.name);
-                            saveProfile({ ...userProfile, selectedCourses: updated });
-                          }}
-                          className="mt-0.5 rounded text-emerald-600 focus:ring-emerald-500"
-                        />
-                        <div className="text-xs">
-                          <div className="font-bold">{c.name}</div>
-                          <div className="text-[10px] text-slate-500">窓口: {c.window}</div>
-                        </div>
-                      </label>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* 選択副専攻（複数選択可） */}
-              <div>
-                <label className="block font-bold text-slate-800 text-xs mb-1.5">
-                  選択副専攻（複数選択・未選択可）:
-                </label>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {ALL_MINORS.map((m) => {
-                    const isChecked = userProfile.selectedMinors.includes(m);
-                    return (
-                      <label
-                        key={m}
-                        className={`flex items-center space-x-2 p-2 rounded-lg border cursor-pointer transition ${
-                          isChecked ? 'bg-teal-50 border-teal-400 text-teal-900' : 'bg-slate-50 border-slate-200 text-slate-700'
-                        }`}
+                        {CHS_DEPARTMENTS.map((dept) => (
+                          <option key={dept} value={dept}>{dept}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block font-bold text-slate-800 text-xs mb-1">学年:</label>
+                      <select
+                        value={userProfile.grade}
+                        onChange={(e) => saveProfile({ ...userProfile, grade: parseInt(e.target.value, 10) })}
+                        className="w-full px-3 py-2 border border-slate-300 rounded-xl bg-white text-xs sm:text-sm font-medium"
                       >
+                        {[1, 2, 3, 4].map((g) => (
+                          <option key={g} value={g}>{g}年</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* 学科要件バナー */}
+                  <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-200 text-xs space-y-1">
+                    <div className="font-bold text-emerald-900 flex items-center justify-between">
+                      <span>📖 {liveDeptData.department} の要覧基準（要覧 p.{liveDeptData.page}）</span>
+                      <span className="text-[11px] bg-emerald-200 text-emerald-900 px-2 py-0.5 rounded font-bold">卒業要件 124単位</span>
+                    </div>
+                    <div className="text-emerald-800">
+                      専門必修: <strong>{liveDeptData.majorReq}単位</strong> / 専門選択: <strong>{liveDeptData.majorOpt}単位</strong>（専門計: {liveDeptData.majorTotal}単位） / 自由選択: {liveDeptData.freeOpt}単位
+                    </div>
+                    <div className="text-emerald-700 text-[11px] pt-1">
+                      {liveDeptData.prerequisitesNotice}
+                    </div>
+                  </div>
+
+                  {/* 単位数・GPA入力 */}
+                  <div className="grid grid-cols-2 gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200">
+                    <div>
+                      <label className="block font-bold text-slate-800 text-xs mb-1">現在の総修得単位数:</label>
+                      <div className="flex items-center space-x-1">
                         <input
-                          type="checkbox"
-                          checked={isChecked}
-                          onChange={(e) => {
-                            const updated = e.target.checked
-                              ? [...userProfile.selectedMinors, m]
-                              : userProfile.selectedMinors.filter((x) => x !== m);
-                            saveProfile({ ...userProfile, selectedMinors: updated });
-                          }}
-                          className="rounded text-teal-600 focus:ring-teal-500"
+                          type="number"
+                          min={0}
+                          max={160}
+                          value={userProfile.currentCredits}
+                          onChange={(e) => saveProfile({ ...userProfile, currentCredits: parseInt(e.target.value || '0', 10) })}
+                          className="w-full px-3 py-1.5 border border-slate-300 rounded-lg bg-white text-xs sm:text-sm font-bold text-slate-900"
                         />
-                        <span className="text-xs font-semibold">{m}</span>
-                      </label>
-                    );
-                  })}
+                        <span className="text-xs text-slate-500 whitespace-nowrap">/ 124</span>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block font-bold text-slate-800 text-xs mb-1">今期履修中の単位数:</label>
+                      <div className="flex items-center space-x-1">
+                        <input
+                          type="number"
+                          min={0}
+                          max={30}
+                          value={userProfile.semesterCredits}
+                          onChange={(e) => saveProfile({ ...userProfile, semesterCredits: parseInt(e.target.value || '0', 10) })}
+                          className="w-full px-3 py-1.5 border border-slate-300 rounded-lg bg-white text-xs sm:text-sm"
+                        />
+                        <span className="text-xs text-slate-500 whitespace-nowrap">単位</span>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block font-bold text-slate-800 text-xs mb-1">現在のGPA:</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min={0}
+                        max={4.0}
+                        value={userProfile.currentGpa}
+                        onChange={(e) => saveProfile({ ...userProfile, currentGpa: parseFloat(e.target.value || '0') })}
+                        className="w-full px-3 py-1.5 border border-slate-300 rounded-lg bg-white text-xs sm:text-sm font-semibold"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block font-bold text-slate-800 text-xs mb-1">目標GPA:</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min={0}
+                        max={4.0}
+                        value={userProfile.targetGpa}
+                        onChange={(e) => saveProfile({ ...userProfile, targetGpa: parseFloat(e.target.value || '0') })}
+                        className="w-full px-3 py-1.5 border border-emerald-400 bg-emerald-50 text-emerald-900 rounded-lg text-xs sm:text-sm font-bold"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* TAB 2: 必修科目チェックリスト */}
+              {profileTab === 'reqCourses' && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between pb-1">
+                    <div>
+                      <h4 className="font-bold text-slate-900 text-xs">
+                        【{liveDeptData.department}】主要必修科目（要覧 p.{liveDeptData.page}）
+                      </h4>
+                      <p className="text-[11px] text-slate-500">
+                        修得済みの科目にチェックを入れると、未修得科目が自動で再計算されます。
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                        未修得: {liveDeficiency.missingMajorReqs.length}科目
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="divide-y divide-slate-100 border border-slate-200 rounded-xl overflow-hidden max-h-80 overflow-y-auto">
+                    {liveDeptData.requiredCourses.map((req) => {
+                      const isCompleted = userProfile.completedCourses.some((c) => c.name === req.name);
+                      return (
+                        <label
+                          key={req.name}
+                          className={`flex items-start justify-between p-2.5 cursor-pointer transition ${
+                            isCompleted ? 'bg-emerald-50/60' : 'bg-white hover:bg-slate-50'
+                          }`}
+                        >
+                          <div className="flex items-start space-x-2.5">
+                            <input
+                              type="checkbox"
+                              checked={isCompleted}
+                              onChange={() => toggleCourseCompleted(req.name, req.credits, req.year)}
+                              className="mt-0.5 rounded text-emerald-600 focus:ring-emerald-500"
+                            />
+                            <div>
+                              <div className={`font-bold text-xs ${isCompleted ? 'text-emerald-900 line-through opacity-75' : 'text-slate-800'}`}>
+                                {req.name}
+                              </div>
+                              <div className="text-[11px] text-slate-500">
+                                {req.year}年配当 {req.semester ? `・${req.semester}` : ''} | {req.credits}単位
+                                {req.note ? `（${req.note}）` : ''}
+                              </div>
+                            </div>
+                          </div>
+                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                            isCompleted ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-50 text-rose-700 border border-rose-200'
+                          }`}>
+                            {isCompleted ? '修得済' : '未修得'}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* TAB 3: 資格コース選択 */}
+              {profileTab === 'courses' && (
+                <div className="space-y-3">
+                  <div className="text-xs text-slate-600">
+                    履修中のコースを選択してください（複数選択可）。修得単位は原則「自由選択区分」に算入可能です。
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    {GAKUBU_YORAN_COURSES.map((c) => {
+                      const isChecked = userProfile.selectedCourses.includes(c.name);
+                      return (
+                        <label
+                          key={c.name}
+                          className={`flex items-start space-x-2.5 p-3 rounded-xl border cursor-pointer transition ${
+                            isChecked
+                              ? 'bg-emerald-50 border-emerald-400 text-emerald-900 shadow-2xs'
+                              : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={(e) => {
+                              const updated = e.target.checked
+                                ? [...userProfile.selectedCourses, c.name]
+                                : userProfile.selectedCourses.filter((x) => x !== c.name);
+                              saveProfile({ ...userProfile, selectedCourses: updated });
+                            }}
+                            className="mt-0.5 rounded text-emerald-600 focus:ring-emerald-500"
+                          />
+                          <div className="text-xs space-y-0.5">
+                            <div className="font-bold flex items-center space-x-1">
+                              <span>{c.name}</span>
+                              <span className="text-[10px] text-slate-400 font-normal">({c.page})</span>
+                            </div>
+                            <div className="text-[11px] text-slate-500">{c.target}</div>
+                            <div className="text-[10px] text-emerald-700 font-medium">
+                              窓口: {c.window} | 必要: {c.requiredCredits}単位
+                            </div>
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* TAB 4: 副専攻選択 (全24種) */}
+              {profileTab === 'minors' && (
+                <div className="space-y-4">
+                  <div className="text-xs text-slate-600">
+                    副専攻（全24種）から選択してください。指定科目から<strong>16単位以上</strong>修得で修了証書が授与されます。
+                  </div>
+
+                  {/* 5つの学際副専攻 */}
+                  <div>
+                    <div className="font-bold text-xs text-teal-900 mb-1.5 flex items-center space-x-1">
+                      <span>🌐 5つの学際副専攻（全学科対象）</span>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {GAKUBU_YORAN_ALL_24_MINORS.filter((m) => m.type === 'academic').map((m) => {
+                        const isChecked = userProfile.selectedMinors.includes(m.name);
+                        const isForbidden =
+                          m.name === '科学リテラシー副専攻' &&
+                          ['地理学科', '地球科学科', '数学科', '情報科学科', '物理学科', '生命科学科', '化学科'].includes(userProfile.department);
+
+                        return (
+                          <label
+                            key={m.name}
+                            className={`flex items-start space-x-2 p-2.5 rounded-xl border text-xs transition ${
+                              isForbidden
+                                ? 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed opacity-60'
+                                : isChecked
+                                ? 'bg-teal-50 border-teal-400 text-teal-900 shadow-2xs cursor-pointer'
+                                : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50 cursor-pointer'
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              disabled={isForbidden}
+                              checked={isChecked}
+                              onChange={(e) => {
+                                const updated = e.target.checked
+                                  ? [...userProfile.selectedMinors, m.name]
+                                  : userProfile.selectedMinors.filter((x) => x !== m.name);
+                                saveProfile({ ...userProfile, selectedMinors: updated });
+                              }}
+                              className="mt-0.5 rounded text-teal-600 focus:ring-teal-500"
+                            />
+                            <div>
+                              <div className="font-bold flex items-center space-x-1">
+                                <span>{m.name}</span>
+                                <span className="text-[10px] text-slate-400">({m.page})</span>
+                              </div>
+                              <div className="text-[10px] text-slate-500">{m.description}</div>
+                              {isForbidden && (
+                                <div className="text-[10px] text-rose-500 font-bold">※理系6学科生は修了不可</div>
+                              )}
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* 19の学科副専攻 */}
+                  <div>
+                    <div className="font-bold text-xs text-slate-800 mb-1.5 flex items-center space-x-1">
+                      <span>🏛️ 19の学科副専攻（所属学科と同一の副専攻は修了不可）</span>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-60 overflow-y-auto border border-slate-100 p-1.5 rounded-xl">
+                      {GAKUBU_YORAN_ALL_24_MINORS.filter((m) => m.type === 'department').map((m) => {
+                        const isChecked = userProfile.selectedMinors.includes(m.name);
+                        const isOwnDept = m.targetDept === userProfile.department;
+
+                        return (
+                          <label
+                            key={m.name}
+                            className={`flex items-start space-x-2 p-2 rounded-lg border text-xs transition ${
+                              isOwnDept
+                                ? 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed opacity-60'
+                                : isChecked
+                                ? 'bg-teal-50 border-teal-400 text-teal-900 shadow-2xs cursor-pointer'
+                                : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50 cursor-pointer'
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              disabled={isOwnDept}
+                              checked={isChecked}
+                              onChange={(e) => {
+                                const updated = e.target.checked
+                                  ? [...userProfile.selectedMinors, m.name]
+                                  : userProfile.selectedMinors.filter((x) => x !== m.name);
+                                saveProfile({ ...userProfile, selectedMinors: updated });
+                              }}
+                              className="mt-0.5 rounded text-teal-600 focus:ring-teal-500"
+                            />
+                            <div>
+                              <div className="font-bold flex items-center space-x-1">
+                                <span>{m.name}</span>
+                                <span className="text-[10px] text-slate-400">({m.page})</span>
+                              </div>
+                              {isOwnDept ? (
+                                <div className="text-[10px] text-rose-500 font-bold">※所属学科のため修了認定不可</div>
+                              ) : (
+                                <div className="text-[10px] text-slate-500">{m.description}</div>
+                              )}
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* リアルタイム要約バー */}
+              <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center space-x-3">
+                  <span>🎓 卒業まで: <strong className="text-emerald-700">残り {liveDeficiency.remainingCredits}単位</strong></span>
+                  <span>📌 未修得必修: <strong className="text-rose-600">{liveDeficiency.missingMajorReqs.length}科目</strong></span>
+                  <span>📊 今期目標GPA: <strong className={liveGpaSim.isAchievable ? 'text-teal-700' : 'text-amber-600'}>
+                    {liveGpaSim.isAchievable ? '達成可能' : '今期到達困難'}
+                  </strong></span>
                 </div>
               </div>
             </div>
 
+            {/* フッター */}
             <div className="p-3 border-t border-slate-100 flex justify-end">
               <button
                 type="button"
@@ -895,7 +1135,7 @@ export default function UnifiedAssistantPage() {
                 <span className="text-2xl">⚙️</span>
                 <div>
                   <h3 className="text-base font-bold text-slate-900">Google Gemini API設定</h3>
-                  <p className="text-xs text-slate-500">無料公開・クレジットカード不要で取得可能</p>
+                  <p className="text-xs text-slate-500">無料・クレジットカード不要で取得可能</p>
                 </div>
               </div>
               <button
@@ -912,7 +1152,7 @@ export default function UnifiedAssistantPage() {
                   <span>💡 先生おすすめの無料APIについて</span>
                 </div>
                 <p className="text-xs leading-relaxed">
-                  Google AI Studioで発行できる <strong>Gemini APIキー</strong> は、クレジットカード登録不要・完全無料で1日1,500リクエストまで利用できます。
+                  Google AI Studioで発行できる <strong>Gemini APIキー</strong> は、完全無料で1日1,500リクエストまで利用できます。
                 </p>
                 <p className="text-xs leading-relaxed">
                   APIを連携すると、<strong>成績表写真のマルチモーダルOCR解析</strong>、目標GPAに向けた詳細な条件シミュレーション、くだけた言い回しにもAIが柔軟にお答えします。
@@ -1012,12 +1252,12 @@ export default function UnifiedAssistantPage() {
       ========================================== */}
       {showDrawer && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs">
-          <div className="bg-white rounded-2xl shadow-xl max-w-2xl w-full max-h-[85vh] flex flex-col border border-slate-200">
+          <div className="bg-white rounded-2xl shadow-xl max-w-3xl w-full max-h-[85vh] flex flex-col border border-slate-200">
             {/* モーダルヘッダー */}
             <div className="flex items-center justify-between p-4 border-b border-slate-200">
               <div className="flex items-center space-x-2">
                 <span className="text-xl">📋</span>
-                <h3 className="font-bold text-slate-900 text-base">文理学部 学内早見表</h3>
+                <h3 className="font-bold text-slate-900 text-base">文理学部 学部要覧 公式早見表</h3>
               </div>
               <button
                 onClick={() => setShowDrawer(false)}
@@ -1037,7 +1277,27 @@ export default function UnifiedAssistantPage() {
                     : 'border-transparent text-slate-500 hover:text-slate-800'
                 }`}
               >
-                🎓 卒業要件・GPA・コース
+                🎓 全18学科 卒業単位表
+              </button>
+              <button
+                onClick={() => setDrawerTab('courses')}
+                className={`px-3 py-2 text-xs font-bold border-b-2 whitespace-nowrap transition ${
+                  drawerTab === 'courses'
+                    ? 'border-emerald-600 text-emerald-700 bg-white rounded-t-lg'
+                    : 'border-transparent text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                🏅 6コース科目・窓口
+              </button>
+              <button
+                onClick={() => setDrawerTab('minors')}
+                className={`px-3 py-2 text-xs font-bold border-b-2 whitespace-nowrap transition ${
+                  drawerTab === 'minors'
+                    ? 'border-emerald-600 text-emerald-700 bg-white rounded-t-lg'
+                    : 'border-transparent text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                🌐 全24副専攻一覧
               </button>
               <button
                 onClick={() => setDrawerTab('rooms')}
@@ -1076,54 +1336,133 @@ export default function UnifiedAssistantPage() {
               {drawerTab === 'credits' && (
                 <div className="space-y-4">
                   <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
-                    <div className="font-bold text-slate-900 mb-1">■ 卒業要件 ＆ 成績評価ポイント（GP）</div>
-                    <p className="text-slate-600">全学科共通で <strong>124単位</strong> の修得が必要です。</p>
-                    <div className="mt-2 p-2.5 bg-white rounded-lg border border-slate-200 font-mono text-xs text-slate-800 flex justify-around">
-                      <span>S: 4.0</span>
-                      <span>A: 3.0</span>
-                      <span>B: 2.0</span>
-                      <span>C: 1.0</span>
-                      <span>F: 0.0</span>
+                    <div className="font-bold text-slate-900 mb-1">■ 卒業に必要な最低単位数（全18学科共通 124単位・要覧 p.31）</div>
+                    <p className="text-slate-600 text-xs mb-2">
+                      全学科共通で「全学共通(2)」「総合教育(12・人文/社会/理学各2)」「外国語教育(8〜18)」「基礎教育(5・健スポ3/情報2)」「学科専門」「自由選択」の6区分から計124単位を修得します。
+                    </p>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-[11px] border-collapse bg-white">
+                        <thead>
+                          <tr className="bg-slate-100 text-slate-700 border-b">
+                            <th className="p-1.5 text-left">学科</th>
+                            <th className="p-1.5 text-center">外国語</th>
+                            <th className="p-1.5 text-center">専門必修</th>
+                            <th className="p-1.5 text-center">専門選択</th>
+                            <th className="p-1.5 text-center">専門計</th>
+                            <th className="p-1.5 text-center">自由選択</th>
+                            <th className="p-1.5 text-center">要覧頁</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {Object.values(GAKUBU_YORAN_DEPARTMENTS).map((d) => (
+                            <tr key={d.department} className="hover:bg-slate-50">
+                              <td className="p-1.5 font-bold">{d.department}</td>
+                              <td className="p-1.5 text-center">{d.gaikokugoReq}</td>
+                              <td className="p-1.5 text-center font-semibold text-emerald-800">{d.majorReq}</td>
+                              <td className="p-1.5 text-center">{d.majorOpt}</td>
+                              <td className="p-1.5 text-center font-bold">{d.majorTotal}</td>
+                              <td className="p-1.5 text-center text-slate-500">{d.freeOpt}</td>
+                              <td className="p-1.5 text-center text-slate-400">p.{d.page}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
                   </div>
 
                   <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
-                    <div className="font-bold text-slate-900 mb-1">■ 不足講義判定の優先順位ルール</div>
-                    <ol className="list-decimal list-inside space-y-1 text-slate-600 text-xs">
-                      <li><strong>優先度 1（最優先）</strong>: 所属学科の専門必修科目の未履修チェック</li>
-                      <li><strong>優先度 2</strong>: 選択コース（複数可）および副専攻の到達要件チェック</li>
-                      <li><strong>優先度 3</strong>: 卒業に必要なその他単位（自由選択等・計124単位）のチェック</li>
-                    </ol>
+                    <div className="font-bold text-slate-900 mb-1">■ 履修科目登録単位数の上限（CAP制・要覧 p.35-36）</div>
+                    <p className="text-slate-600 text-xs mb-1.5">
+                      年間で履修登録できる単位数の上限は<strong>年間40単位</strong>です（修得単位数ではなく登録単位数）。
+                    </p>
+                    <div className="text-[11px] text-slate-500 space-y-1">
+                      <div>・<strong>上限に含まれない科目</strong>：中国語(逆)再履修、集中授業、海外語学研修、コース科目（教職・司書等）、学科専門科目のアンダーライン＊付科目。</div>
+                      <div>・<strong>成績優秀者の特別加算</strong>：</div>
+                      <div className="ml-2">
+                        - 1年前期16単位以上修得＋GPA 2.5以上 ➔ 1年後期に<strong>+4単位</strong>（年44単位）<br />
+                        - 前年度20単位以上修得＋GPA 3.0以上 ➔ 年間<strong>+8単位</strong>（年48単位）<br />
+                        - 前年度20単位以上修得＋GPA 2.5以上 ➔ 年間<strong>+6単位</strong>（年46単位）<br />
+                        - 前年度20単位以上修得＋GPA 2.0以上 ➔ 年間<strong>+4単位</strong>（年44単位）<br />
+                        - 前年度再履修となった科目 ➔ 年間上限<strong>+10単位</strong>まで加算
+                      </div>
+                    </div>
                   </div>
 
                   <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
-                    <div className="font-bold text-slate-900 mb-1">■ 全学科共通 6コース科目と申請窓口</div>
-                    <ul className="divide-y divide-slate-200 text-xs">
-                      <li className="py-1.5 flex items-center justify-between">
-                        <span><strong>教職コース</strong>（中学・高校教諭一種免許）</span>
-                        <span className="font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded">教職センター</span>
-                      </li>
-                      <li className="py-1.5 flex items-center justify-between">
-                        <span><strong>司書教諭コース</strong>（学校図書館司書教諭）</span>
-                        <span className="font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded">教職センター</span>
-                      </li>
-                      <li className="py-1.5 flex items-center justify-between">
-                        <span><strong>司書コース</strong>（公共図書館等の司書資格）</span>
-                        <span className="font-bold text-blue-800 bg-blue-50 px-2 py-0.5 rounded">教務課窓口</span>
-                      </li>
-                      <li className="py-1.5 flex items-center justify-between">
-                        <span><strong>学芸員コース</strong>（博物館・美術館等の学芸員資格）</span>
-                        <span className="font-bold text-blue-800 bg-blue-50 px-2 py-0.5 rounded">教務課窓口</span>
-                      </li>
-                      <li className="py-1.5 flex items-center justify-between">
-                        <span><strong>社会教育主事コース</strong>（社会教育士）</span>
-                        <span className="font-bold text-blue-800 bg-blue-50 px-2 py-0.5 rounded">教務課窓口</span>
-                      </li>
-                      <li className="py-1.5 flex items-center justify-between">
-                        <span><strong>日本語教育コース</strong>（日本語教員養成）</span>
-                        <span className="font-bold text-blue-800 bg-blue-50 px-2 py-0.5 rounded">教務課窓口</span>
-                      </li>
-                    </ul>
+                    <div className="font-bold text-slate-900 mb-1">■ GPA算出方法と成績評価（要覧 p.38-39）</div>
+                    <p className="text-xs text-slate-600 mb-1">
+                      GPA = (4×S + 3×A + 2×B + 1×C) / 総履修単位（D, E含む）。小数第3位四捨五入。
+                    </p>
+                    <div className="p-2 bg-white rounded-lg border border-slate-200 font-mono text-xs text-slate-800 flex justify-around">
+                      <span>S: 100〜90点 (4.0)</span>
+                      <span>A: 89〜80点 (3.0)</span>
+                      <span>B: 79〜70点 (2.0)</span>
+                      <span>C: 69〜60点 (1.0)</span>
+                      <span>D/E: 59点以下 (0.0)</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {drawerTab === 'courses' && (
+                <div className="space-y-3">
+                  <div className="font-bold text-slate-900 text-xs">
+                    ■ 全学科共通 6コース科目と申請窓口（要覧 p.140-177）
+                  </div>
+                  <div className="space-y-2">
+                    {GAKUBU_YORAN_COURSES.map((c) => (
+                      <div key={c.name} className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-1">
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-slate-900">{c.name}</span>
+                          <span className="text-[11px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded">
+                            窓口: {c.window}
+                          </span>
+                        </div>
+                        <div className="text-xs text-slate-600">資格・目的: {c.target}（要覧 {c.page}）</div>
+                        <div className="text-[11px] text-slate-500">単位取扱: {c.creditsRule}</div>
+                        {c.practicalRequirements && (
+                          <div className="text-[11px] text-amber-800">実習要件: {c.practicalRequirements}</div>
+                        )}
+                        <div className="text-[10px] text-slate-400">
+                          主要科目: {c.keyRequiredCourses.slice(0, 5).join(', ')} ...
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {drawerTab === 'minors' && (
+                <div className="space-y-3">
+                  <div className="font-bold text-slate-900 text-xs">
+                    ■ 文理学部の副専攻（全24種・要覧 p.180-192）
+                  </div>
+                  <p className="text-xs text-slate-600">
+                    指定科目から16単位以上修得で卒業時に修了証書が発行されます。事前届出は不要です。
+                  </p>
+
+                  <div className="font-bold text-xs text-teal-900 mt-2">【5つの学際副専攻】</div>
+                  <div className="space-y-1.5">
+                    {GAKUBU_YORAN_ALL_24_MINORS.filter((m) => m.type === 'academic').map((m) => (
+                      <div key={m.name} className="p-2.5 bg-teal-50/60 rounded-lg border border-teal-200 text-xs">
+                        <div className="font-bold text-teal-950 flex justify-between">
+                          <span>{m.name}</span>
+                          <span className="text-[11px] text-slate-500">{m.window}（{m.page}）</span>
+                        </div>
+                        <div className="text-[11px] text-teal-900">{m.description}</div>
+                        <div className="text-[10px] text-slate-500">{m.ruleNotice}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="font-bold text-xs text-slate-900 mt-3">【19の学科副専攻】</div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                    {GAKUBU_YORAN_ALL_24_MINORS.filter((m) => m.type === 'department').map((m) => (
+                      <div key={m.name} className="p-2 bg-slate-50 rounded-lg border border-slate-200">
+                        <div className="font-bold text-slate-900">{m.name}</div>
+                        <div className="text-[10px] text-slate-500">{m.description}（{m.page}）</div>
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}
