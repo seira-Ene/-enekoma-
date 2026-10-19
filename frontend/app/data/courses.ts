@@ -1,4 +1,6 @@
 // 日本大学文理学部 講義データベース（検索・ワンタップ登録用）
+import { LECTURE_DATABASE_REIWA6 } from './coursesReiwa6';
+
 export interface LectureCourse {
   day: string; // "月", "火", "水", "木", "金", "土", "集中"
   period: number; // 1〜5, 集中は0
@@ -7,6 +9,8 @@ export interface LectureCourse {
   room: string;
   department: string;
   semester?: string;
+  grade?: string;
+  curriculum?: string;
 }
 
 /**
@@ -5603,3 +5607,426 @@ export const LECTURE_DATABASE: LectureCourse[] = [
     "semester": "後期"
   }
 ];
+
+// =========================================================================
+// 講義データベース取得（入学年度・カリキュラム体系連動）
+// =========================================================================
+export function getLectureDatabase(curriculum?: string): LectureCourse[] {
+  if (curriculum === 'reiwa6_or_earlier') {
+    return LECTURE_DATABASE_REIWA6;
+  }
+  return LECTURE_DATABASE;
+}
+
+// キャンパス主要講義室マスターリスト
+export const ALL_CAMPUS_ROOMS = [
+  "122", "123", "124", "125", "126", "130", "131", "132", "133", "134", "135", "136", "137A", "137B", "138", "139", "141", "151",
+  "2201", "2202", "2203", "2204", "2301", "2302", "2304",
+  "3202", "3203", "3204", "3205", "3206", "3207", "3208", "3209",
+  "3301", "3302", "3303", "3304", "3305", "3306", "3307", "3308", "3309", "3310",
+  "3401", "3402", "3403", "3404", "3405", "3406", "3407", "3408", "3409", "3410",
+  "3501", "3502", "3503", "3504", "3505", "3506", "3507", "3508", "3509", "3510",
+  "411", "412", "421", "422", "431", "432", "441", "442", "443", "444"
+];
+
+// =========================================================================
+// 1. リアルタイム空き教室・自習スポット検索
+// =========================================================================
+export interface FreeRoomsResult {
+  day: string;
+  period: number;
+  isLunchBreak: boolean;
+  totalFreeCount: number;
+  freeRooms: string[];
+  byBuilding: { [bld: string]: string[] };
+  formattedReport: string;
+}
+
+export function findFreeRooms(
+  targetDay?: string,
+  targetPeriod?: number,
+  targetBuilding?: string,
+  curriculum?: string
+): FreeRoomsResult {
+  const db = getLectureDatabase(curriculum);
+  const now = new Date();
+  const dayNames = ['日', '月', '火', '水', '木', '金', '土'];
+  const curDay = targetDay || (dayNames[now.getDay()] === '日' ? '月' : dayNames[now.getDay()]);
+
+  let curPeriod = targetPeriod;
+  let isLunch = false;
+
+  if (curPeriod === undefined) {
+    const hours = now.getHours();
+    const minutes = now.getMinutes();
+    const totalMin = hours * 60 + minutes;
+
+    if (totalMin < 10 * 60 + 35) {
+      curPeriod = 1; // 09:00〜10:30
+    } else if (totalMin < 12 * 60 + 10) {
+      curPeriod = 2; // 10:40〜12:10
+    } else if (totalMin < 13 * 60) {
+      curPeriod = 2; // 昼休み
+      isLunch = true;
+    } else if (totalMin < 14 * 60 + 35) {
+      curPeriod = 3; // 13:00〜14:30
+    } else if (totalMin < 16 * 60 + 15) {
+      curPeriod = 4; // 14:40〜16:10
+    } else {
+      curPeriod = 5; // 16:20〜17:50
+    }
+  }
+
+  // 該当曜日・時限に使用中の教室を抽出
+  const occupiedSet = new Set<string>();
+  if (!isLunch) {
+    db.forEach((c) => {
+      if (c.day === curDay && c.period === curPeriod) {
+        const rooms = c.room.split(/[/／,\s]+/);
+        rooms.forEach((r) => {
+          const clean = r.trim().toUpperCase();
+          if (clean) occupiedSet.add(clean);
+        });
+      }
+    });
+  }
+
+  const freeRooms = ALL_CAMPUS_ROOMS.filter((r) => !occupiedSet.has(r));
+
+  const byBuilding: { [bld: string]: string[] } = {
+    '1号館': freeRooms.filter((r) => r.startsWith('1')),
+    '2号館': freeRooms.filter((r) => r.startsWith('2')),
+    '3号館': freeRooms.filter((r) => r.startsWith('3')),
+    '4号館': freeRooms.filter((r) => r.startsWith('4'))
+  };
+
+  const lines: string[] = [];
+  const curLabel = curriculum === 'reiwa6_or_earlier' ? '（令和6年度以前入学者向け時間割参照）' : '（令和7年度以降入学者向け時間割参照）';
+  lines.push(`🏫 **【リアルタイム空き教室・自習スポット案内】** ${curLabel}`);
+  lines.push(`🕒 **判定日時**: **${curDay}曜 ${curPeriod}限**（${isLunch ? '※現在昼休み中' : '授業実施時間帯'}）`);
+  lines.push(``);
+
+  if (isLunch) {
+    lines.push(`🍱 **【昼休み（12:10〜13:00）全教室開放ルール】**:`);
+    lines.push(`文理学部では昼休み時間中、授業の入っていない一般講義室が休憩・自習・昼食用に開放されています。`);
+    lines.push(`・飲食後はゴミを必ず各階のゴミ箱へ分別廃棄（または持ち帰り）してください。`);
+    lines.push(`・午後の授業（3限・13:00〜）の受講生が入室してきた際は速やかに席をお譲りください。`);
+    lines.push(``);
+  }
+
+  if (targetBuilding) {
+    const bldRooms = byBuilding[targetBuilding] || [];
+    lines.push(`📍 **${targetBuilding}の空き教室（全${bldRooms.length}室）**:`);
+    if (bldRooms.length > 0) {
+      lines.push(bldRooms.map((r) => `・${getCompactRoomLabel(r)}`).join('\n'));
+    } else {
+      lines.push(`現在、${targetBuilding}に空き教室はありません。`);
+    }
+  } else {
+    lines.push(`📍 **号館別 空き教室一覧（利用可能 全${freeRooms.length}室）**:`);
+    lines.push(`・**3号館**（${byBuilding['3号館'].length}室）: ${byBuilding['3号館'].slice(0, 8).map(getCompactRoomLabel).join(', ')}${byBuilding['3号館'].length > 8 ? ' 他' : ''}`);
+    lines.push(`・**4号館**（${byBuilding['4号館'].length}室）: ${byBuilding['4号館'].map(getCompactRoomLabel).join(', ')}`);
+    lines.push(`・**1号館**（${byBuilding['1号館'].length}室）: ${byBuilding['1号館'].slice(0, 6).map(getCompactRoomLabel).join(', ')}${byBuilding['1号館'].length > 6 ? ' 他' : ''}`);
+    lines.push(`・**2号館**（${byBuilding['2号館'].length}室）: ${byBuilding['2号館'].map(getCompactRoomLabel).join(', ')}`);
+  }
+
+  lines.push(``);
+  lines.push(`💡 **静かに自習・PC利用したい場合の推奨スポット**:`);
+  lines.push(`・**ラーニング・コモンズ（本館1階）**: 08:00〜18:00（PC・グループ学習・自習可）`);
+  lines.push(`・**文理学部図書館（図書館棟）**: 09:00〜20:00（個人学習席・地下書庫利用可）`);
+
+  return {
+    day: curDay,
+    period: curPeriod,
+    isLunchBreak: isLunch,
+    totalFreeCount: freeRooms.length,
+    freeRooms,
+    byBuilding,
+    formattedReport: lines.join('\n')
+  };
+}
+
+// =========================================================================
+// 2. 履修登録サポート＆「空きコマ」活用提案
+// =========================================================================
+export interface ConflictCheckResult {
+  hasConflict: boolean;
+  conflicts: { day: string; period: number; courses: string[] }[];
+  formattedReport: string;
+}
+
+export function checkCourseConflicts(courseNames: string[], curriculum?: string): ConflictCheckResult {
+  const db = getLectureDatabase(curriculum);
+  const slotMap: { [slot: string]: string[] } = {};
+
+  courseNames.forEach((target) => {
+    const clean = target.trim();
+    const hit = db.find((c) => c.name.includes(clean) || clean.includes(c.name));
+    if (hit && hit.day && hit.period) {
+      const slot = `${hit.day}曜${hit.period}限`;
+      if (!slotMap[slot]) slotMap[slot] = [];
+      slotMap[slot].push(`${hit.name}（${hit.teacher} / ${hit.room}）`);
+    }
+  });
+
+  const conflicts: { day: string; period: number; courses: string[] }[] = [];
+  const lines: string[] = ['📋 **【履修登録 時間割重複（バッティング）チェック】**', ''];
+
+  let hasConflict = false;
+  Object.entries(slotMap).forEach(([slot, list]) => {
+    if (list.length > 1) {
+      hasConflict = true;
+      const m = slot.match(/([月火水木金土])曜(\d)限/);
+      const d = m ? m[1] : '月';
+      const p = m ? parseInt(m[2], 10) : 1;
+      conflicts.push({ day: d, period: p, courses: list });
+      lines.push(`⚠️ **【時間重複あり】 ${slot}**:`);
+      list.forEach((c) => lines.push(`  ❌ ${c}`));
+      lines.push(`  ➔ 同一コマに複数の授業が重複しています。どちらか一方を選択してください。`);
+    }
+  });
+
+  if (!hasConflict) {
+    lines.push(`✅ **重複なし**: 照合した科目間で時間の重なりはありません。このまま登録可能です。`);
+  }
+
+  return {
+    hasConflict,
+    conflicts,
+    formattedReport: lines.join('\n')
+  };
+}
+
+export function suggestCoursesForFreePeriod(
+  day: string,
+  period: number,
+  categoryFilter?: string,
+  curriculum?: string
+): string {
+  const db = getLectureDatabase(curriculum);
+  const matches = db.filter((c) => {
+    if (c.day !== day || c.period !== period) return false;
+    if (categoryFilter) {
+      return (
+        c.department.includes(categoryFilter) ||
+        c.name.includes(categoryFilter)
+      );
+    }
+    // デフォルトは総合教育科目・外国語・基礎科目などを優先
+    return (
+      c.department.includes('総合') ||
+      c.department.includes('外国語') ||
+      c.department.includes('基礎') ||
+      c.department.includes('全学')
+    );
+  });
+
+  const lines: string[] = [
+    `🎯 **【${day}曜 ${period}限 空きコマ活用・推奨科目サジェスト】**`,
+    `空いているコマに履修可能なおすすめ科目一覧です（${matches.length}件該当）：`,
+    ''
+  ];
+
+  if (matches.length > 0) {
+    matches.slice(0, 8).forEach((c) => {
+      const roomLbl = getCompactRoomLabel(c.room);
+      lines.push(`・**${c.name}**（担当：${c.teacher} 先生）`);
+      lines.push(`  区分: ${c.department} | 教室: **${roomLbl}**`);
+    });
+  } else {
+    // 全科目から探す
+    const allMatches = db.filter((c) => c.day === day && c.period === period);
+    lines.push(`指定条件の科目が少ないため、該当コマの開講科目を表示します：`);
+    allMatches.slice(0, 6).forEach((c) => {
+      lines.push(`・**${c.name}**（${c.teacher} / ${getCompactRoomLabel(c.room)}）［${c.department}］`);
+    });
+  }
+
+  lines.push('');
+  lines.push(`💡 **履修のポイント**: 総合教育科目は人文2・社会2・理学2単位が必修です。空きコマを活用して計画的に修得しましょう。`);
+  return lines.join('\n');
+}
+
+// =========================================================================
+// 3. 学部要覧連動「必修組み込み済みの自動スケジュール提案」
+// =========================================================================
+export function proposeAutomaticSchedule(
+  department: string,
+  grade: number,
+  curriculum?: string,
+  requiredCourseNames?: string[]
+): string {
+  const db = getLectureDatabase(curriculum);
+  const curLabel = curriculum === 'reiwa6_or_earlier' ? '（令和6年度以前入学者・旧カリキュラム）' : '（令和7年度以降入学者・新カリキュラム）';
+
+  const lines: string[] = [
+    `📅 **【${department} ${grade}年次 最適履修スケジュール自動提案】** ${curLabel}`,
+    `学部要覧の学科必修科目・基礎科目を優先的にコマへ配置し、空きコマに教養科目を組み込んだ推奨パターンです：`,
+    ''
+  ];
+
+  // 曜日ごとのグリッド作成 (月1〜金5)
+  const grid: { [slot: string]: string } = {};
+
+  // 1. 学科必修科目スロット埋め
+  const targetReqs = requiredCourseNames && requiredCourseNames.length > 0 ? requiredCourseNames : [
+    '自主創造の基礎', '情報リテラシー', 'プログラミング基礎', 'データ構造', 'アルゴリズム', '線形代数1', '基礎微分積分1'
+  ];
+
+  targetReqs.forEach((rName) => {
+    const hit = db.find((c) => (c.name.includes(rName) || rName.includes(c.name)) && c.period > 0);
+    if (hit) {
+      const slot = `${hit.day}曜${hit.period}限`;
+      if (!grid[slot]) {
+        grid[slot] = `📌 **${hit.name}**（${hit.teacher} / ${getCompactRoomLabel(hit.room)}）［必修］`;
+      }
+    }
+  });
+
+  // 2. 空きスロットに総合教育科目をサジェスト
+  const days = ['月', '火', '水', '木', '金'];
+  days.forEach((d) => {
+    for (let p = 1; p <= 5; p++) {
+      const slot = `${d}曜${p}限`;
+      if (!grid[slot]) {
+        const sogoHit = db.find(
+          (c) => c.day === d && c.period === p && (c.department.includes('総合') || c.department.includes('教養'))
+        );
+        if (sogoHit) {
+          grid[slot] = `🟢 *${sogoHit.name}*（${sogoHit.teacher} / ${getCompactRoomLabel(sogoHit.room)}）［総合］`;
+        }
+      }
+    }
+  });
+
+  // 出力生成
+  days.forEach((d) => {
+    lines.push(`**■ ${d}曜日**`);
+    let hasClass = false;
+    for (let p = 1; p <= 5; p++) {
+      const slot = `${d}曜${p}限`;
+      if (grid[slot]) {
+        lines.push(`  ・${p}限: ${grid[slot]}`);
+        hasClass = true;
+      }
+    }
+    if (!hasClass) {
+      lines.push(`  ・授業設定なし（自習・課題日）`);
+    }
+  });
+
+  lines.push('');
+  lines.push(`✨ **履修上の注意点（要覧 p.35）**:`);
+  lines.push(`・年間履修上限は40単位（CAP制）です。1学期あたり20単位前後を目安に無理のない時間割を組みましょう。`);
+  lines.push(`・上記スケジュールは一例です。選択必修や外国語のクラス指定に合わせて調整してください。`);
+
+  return lines.join('\n');
+}
+
+// =========================================================================
+// 4. キャンパス移動・10分休みの最適化ナビ
+// =========================================================================
+export function calculateTransitOptimization(fromRoomRaw: string, toRoomRaw: string): string {
+  const parseRoom = (r: string) => {
+    const clean = r.trim().toUpperCase();
+    let bld = '他';
+    let floor = 1;
+    if (clean.startsWith('1')) {
+      bld = '1号館';
+      floor = clean.length >= 3 ? parseInt(clean[1], 10) : 1;
+    } else if (clean.startsWith('2')) {
+      bld = '2号館';
+      floor = clean.length >= 4 ? parseInt(clean[1], 10) : 2;
+    } else if (clean.startsWith('3')) {
+      bld = '3号館';
+      floor = clean.length >= 4 ? parseInt(clean[1], 10) : 3;
+    } else if (clean.startsWith('4')) {
+      bld = '4号館';
+      floor = clean.length >= 3 ? parseInt(clean[1], 10) : 1;
+    } else if (clean.startsWith('8')) {
+      bld = '8号館';
+      floor = 2;
+    }
+    return { name: clean, bld, floor };
+  };
+
+  const from = parseRoom(fromRoomRaw);
+  const to = parseRoom(toRoomRaw);
+
+  const lines: string[] = [
+    `🚶 **【教室間移動・10分休み最適化ルート案内】**`,
+    `出発：**${getCompactRoomLabel(from.name)}** ➔ 到着：**${getCompactRoomLabel(to.name)}**`,
+    ''
+  ];
+
+  let estMinutes = 3;
+  let feasibility = '🟢 余裕をもって移動可能';
+  let routeAdvice = '';
+
+  if (from.bld === to.bld) {
+    const floorDiff = Math.abs(from.floor - to.floor);
+    estMinutes = Math.max(2, floorDiff * 1 + 1);
+    feasibility = '🟢 同一棟内の移動（極めて安全）';
+    routeAdvice = `同じ${from.bld}内の移動です（${from.floor}階 ➔ ${to.floor}階）。休み時間はエレベーター待ちの列が発生しやすいため、**中央階段を利用すると約${estMinutes}分**で速やかに移動できます。`;
+  } else {
+    // 号館間移動
+    if ((from.bld === '3号館' && to.bld === '1号館') || (from.bld === '1号館' && to.bld === '3号館')) {
+      estMinutes = 5 + (from.floor >= 4 ? 2 : 0);
+      feasibility = estMinutes <= 7 ? '🟢 10分以内で移動可能' : '🟡 早めの移動推奨';
+      routeAdvice = `3号館と1号館は中庭（サクラプロムナード）を挟んで向かい合っています。3号館上層階からの退出時はエレベーターが混雑するため**階段で1階まで降り、中庭通路を抜けて1号館階段へ**向かうルートが最速です（移動目安：約${estMinutes}分）。`;
+    } else if ((from.bld === '4号館' && to.bld === '1号館') || (from.bld === '1号館' && to.bld === '4号館')) {
+      estMinutes = 4;
+      routeAdvice = `1号館と4号館は隣接棟です。1階エントランス通路経由で約${estMinutes}分でスムーズに移動できます。4号館の給水所（冷水機1階）での水分補給にもちょうど良いルートです。`;
+    } else if ((from.bld === '3号館' && to.bld === '4号館') || (from.bld === '4号館' && to.bld === '3号館')) {
+      estMinutes = 3;
+      routeAdvice = `3号館と4号館は隣接しており、地上渡り通路で約${estMinutes}分で到着できます。`;
+    } else {
+      estMinutes = 5;
+      routeAdvice = `${from.bld}から${to.bld}への移動です。屋外通路を歩行して約${estMinutes}分で到着可能です。`;
+    }
+  }
+
+  lines.push(`⏱️ **所要時間目安**: **約${estMinutes}分**（判定: **${feasibility}**）`);
+  lines.push(`🗺️ **おすすめ移動ルート & コツ**:`);
+  lines.push(`・${routeAdvice}`);
+  lines.push(`・**先回り自習テクニック**: 目的地の教室が前のコマで空き教室の場合、休み時間早めに入室して好みの席を確保・自習することができます。`);
+
+  return lines.join('\n');
+}
+
+// =========================================================================
+// 5. 科目・教員・教室の逆引き検索 & 教室使用スケジュール
+// =========================================================================
+export function getRoomDailySchedule(roomNumber: string, targetDay?: string, curriculum?: string): string {
+  const db = getLectureDatabase(curriculum);
+  const now = new Date();
+  const dayNames = ['日', '月', '火', '水', '木', '金', '土'];
+  const curDay = targetDay || (dayNames[now.getDay()] === '日' ? '月' : dayNames[now.getDay()]);
+  const cleanRoom = roomNumber.trim().toUpperCase();
+
+  const lines: string[] = [
+    `📅 **【${getCompactRoomLabel(cleanRoom)}（${cleanRoom}教室）の利用スケジュール】**`,
+    `曜日：**${curDay}曜日** | カリキュラム：${curriculum === 'reiwa6_or_earlier' ? '令和6年度以前' : '令和7年度以降'}`,
+    ''
+  ];
+
+  for (let p = 1; p <= 5; p++) {
+    const hits = db.filter((c) => {
+      if (c.day !== curDay || c.period !== p) return false;
+      const rooms = c.room.split(/[/／,\s]+/);
+      return rooms.some((r) => r.trim().toUpperCase() === cleanRoom);
+    });
+
+    if (hits.length > 0) {
+      const h = hits[0];
+      lines.push(`・**${p}限 (09:00〜17:50)**: 🔴 **使用中** ➔ 『${h.name}』（担当：${h.teacher} 先生 / ${h.department}）`);
+    } else {
+      lines.push(`・**${p}限**: 🟢 **空き教室（自習・利用可能）**`);
+    }
+  }
+
+  lines.push('');
+  lines.push(`※昼休み（12:10〜13:00）は全教室が休憩・自習用に開放されます。`);
+  return lines.join('\n');
+}
+

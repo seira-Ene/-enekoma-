@@ -1177,6 +1177,7 @@ export interface UserProfileData {
   semesterCredits: number;
   selectedCourses: string[]; // 複数選択可
   selectedMinors: string[];  // 複数選択可
+  admissionYear?: 'reiwa7_or_later' | 'reiwa6_or_earlier'; // 入学年度・カリキュラム体系
   completedCourses?: CourseRecord[];
 }
 

@@ -9,6 +9,16 @@ import {
   simulateGpaEngine,
   UserProfileData
 } from '@/app/data/gakubuYoran';
+import {
+  findFreeRooms,
+  checkCourseConflicts,
+  suggestCoursesForFreePeriod,
+  proposeAutomaticSchedule,
+  calculateTransitOptimization,
+  getRoomDailySchedule,
+  getLectureDatabase,
+  getCompactRoomLabel
+} from '@/app/data/courses';
 
 const SYSTEM_PROMPT = `
 # 公式ナレッジベース：日本大学文理学部『学部要覧（令和7年度/2025年度）』完全準拠
@@ -72,6 +82,18 @@ const SYSTEM_PROMPT = `
    「3306」「3505」等の4桁教室番号は、数字を省略せず必ず「3号館 3306教室」と入力通りの番号で表記してください。
 9. **表示領域での文字途切れ防止**
    構内ナビの回答では「表示用：[12文字以内ラベル]」と「詳細案内：[詳細メッセージ]」を分けて出力してください。
+10. **入学年度・カリキュラム体系の区別（令和7年度以降 vs 令和6年度以前）**
+   ユーザープロフィールの「入学年度（admissionYear）」設定（令和7年度以降／令和6年度以前）に基づき、該当する時間割データベースおよび要覧規則を参照して回答してください。
+11. **リアルタイム空き教室・自習スポット検索**
+   現在の曜日・時刻から開講中の授業を除外し、利用可能な空き教室を提示してください。「3号館でいま空いている教室」「4限の空き教室」などの条件検索にも対応します。また昼休み（12:10〜13:00）は全教室が休憩・自習用に開放されるルール（ゴミの持ち帰り・受講生への席譲りマナー）を案内してください。
+12. **履修登録サポート＆「空きコマ」活用提案**
+   学生が挙げた科目同士の時間割重複（バッティング）を即座に検出し警告してください。また「火曜3限が空いているから埋めたい」等の要望に対し、該当コマに開講される総合教育科目・外国語・基礎科目を提案してください。
+13. **必修組み込み済みの自動スケジュール提案**
+   所属学科の配当年次必修科目を時間割にまず配置し、時間の重ならない空きスロットに教養科目（総合教育科目など）を組み込んだ最適な時間割パターンを自動生成してください。
+14. **キャンパス移動・10分休みの最適化ナビ**
+   「3号館から1号館へ10分で移動できる？」等の問い合わせに対し、移動実現性（所要時間目安、階段とエレベーターの使い分け、混雑回避ルート）を判定案内してください。目的地の教室が前のコマで空き教室であれば早めに入室して自習できることも案内してください。
+15. **科目・教員・教室の逆引き検索**
+   「〇〇先生の授業はいつ？」「421教室は何限に使われている？」などの逆引き質問に、曜日・時限・教室・対象学年を即答してください。
 
 ---
 
@@ -256,7 +278,80 @@ function answerLocally(query: string, userProfile?: UserProfileData): string {
     );
   }
 
-  // 5. 教室番号直接入力判定（「3306」「3505」「421」「124」等の直打ち・質問）
+  // 5. リアルタイム空き教室・自習スポット検索
+  if (['空き教室', '空いてる教室', '空いている教室', '自習室', '自習スポット', '自習できる', 'いま空い', '今空い', '教室空い'].some((k) => qLower.includes(k))) {
+    const dayMatch = ['月', '火', '水', '木', '金', '土'].find((d) => q.includes(`${d}曜`) || q.includes(d));
+    const periodMatch = [1, 2, 3, 4, 5].find((p) => q.includes(`${p}限`) || q.includes(`${p}コマ`));
+    let buildingMatch = ['1号館', '2号館', '3号館', '4号館'].find((b) => q.includes(b) || q.includes(b[0] + '号館'));
+    return findFreeRooms(dayMatch, periodMatch, buildingMatch, userProfile?.admissionYear).formattedReport;
+  }
+
+  // 6. キャンパス移動・10分休みの最適化ナビ
+  if (['移動', '10分休み', '間に合う', 'から', 'ルート', '行き方'].some((k) => qLower.includes(k))) {
+    const rooms = q.match(/([1-4]\d{2,3}[a-zA-Z]?)/g);
+    if (rooms && rooms.length >= 2) {
+      return calculateTransitOptimization(rooms[0], rooms[1]);
+    }
+  }
+
+  // 7. 教室の利用スケジュール・何限に使われているか
+  if (['何限に使われ', '何限', '教室の予定', '教室の利用', '利用状況', '使われてる', '使用スケジュール'].some((k) => qLower.includes(k))) {
+    const mRoom = q.match(/([1-4]\d{2,3}[a-zA-Z]?)/);
+    if (mRoom) {
+      const dayMatch = ['月', '火', '水', '木', '金', '土'].find((d) => q.includes(`${d}曜`) || q.includes(d));
+      return getRoomDailySchedule(mRoom[1], dayMatch, userProfile?.admissionYear);
+    }
+  }
+
+  // 8. 履修登録サポート＆「空きコマ」活用提案
+  if (['空きコマ', '空いてるコマ', 'コマを埋め', '埋めたい', 'おすすめの総合', 'コマに入る'].some((k) => qLower.includes(k))) {
+    const dayMatch = ['月', '火', '水', '木', '金', '土'].find((d) => q.includes(`${d}曜`) || q.includes(d)) || '火';
+    const periodMatch = [1, 2, 3, 4, 5].find((p) => q.includes(`${p}限`) || q.includes(`${p}コマ`)) || 3;
+    const cat = q.includes('総合') ? '総合' : q.includes('外国語') ? '外国語' : q.includes('基礎') ? '基礎' : '';
+    return suggestCoursesForFreePeriod(dayMatch, periodMatch, cat, userProfile?.admissionYear);
+  }
+
+  // 9. 時間割重複（バッティング）チェック
+  if (['被っ', '重複', 'バッティング', '重なって'].some((k) => qLower.includes(k))) {
+    const db = getLectureDatabase(userProfile?.admissionYear);
+    const candidateCourses: string[] = [];
+    db.forEach((c) => {
+      if (q.includes(c.name) && !candidateCourses.includes(c.name)) {
+        candidateCourses.push(c.name);
+      }
+    });
+    if (candidateCourses.length >= 2) {
+      return checkCourseConflicts(candidateCourses, userProfile?.admissionYear).formattedReport;
+    }
+  }
+
+  // 10. 学部要覧連動「必修組み込み済みの自動スケジュール提案」
+  if (['時間割作って', '時間割提案', 'スケジュール作って', 'おすすめの時間割', '必修時間割', '基本時間割', '時間割を組んで'].some((k) => qLower.includes(k))) {
+    const dept = userProfile?.department || '情報科学科';
+    const grade = userProfile?.grade || 1;
+    const reqs = GAKUBU_YORAN_DEPARTMENTS[dept]?.requiredCourses.map((c) => c.name) || [];
+    return proposeAutomaticSchedule(dept, grade, userProfile?.admissionYear, reqs);
+  }
+
+  // 11. 講義・教員名の逆引き検索
+  const db = getLectureDatabase(userProfile?.admissionYear);
+  if (q.length >= 2 && ['先生', '教授', '講義', '授業', '開講', '何曜'].some((k) => q.includes(k))) {
+    const cleanQ = q.replace(/(先生|教授|講義|授業|って|何曜|何限|いつ|どこ|教えて|の)/g, '').trim();
+    if (cleanQ.length >= 2) {
+      const hits = db.filter((c) => c.name.includes(cleanQ) || c.teacher.includes(cleanQ));
+      if (hits.length > 0) {
+        const curLabel = userProfile?.admissionYear === 'reiwa6_or_earlier' ? '（令和6年度以前入学者向け）' : '（令和7年度以降入学者向け）';
+        const lines = [`🔍 **【講義・教員 逆引き検索結果: 『${cleanQ}』】** ${curLabel}`, ''];
+        hits.slice(0, 8).forEach((h) => {
+          lines.push(`・**${h.name}**（担当：${h.teacher} 先生）`);
+          lines.push(`  時間: **${h.day}曜 ${h.period}限** | 教室: **${getCompactRoomLabel(h.room)}** | 所属: ${h.department}`);
+        });
+        return lines.join('\n');
+      }
+    }
+  }
+
+  // 12. 教室番号直接入力判定（「3306」「3505」「421」「124」等の直打ち・質問）
   if (!/\d+\s*(単位|円|~|-|〜)/.test(q)) {
     const mRoom = q.match(/([1-4]\d{2,3}[a-zA-Z]?)/);
     if (mRoom) {

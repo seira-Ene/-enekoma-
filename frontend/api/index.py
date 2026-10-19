@@ -11,6 +11,16 @@ try:
 except ImportError:
     CHS_LECTURE_DATABASE = []
 
+try:
+    from chs_courses_reiwa6 import CHS_LECTURE_DATABASE_REIWA6
+except ImportError:
+    CHS_LECTURE_DATABASE_REIWA6 = []
+
+def get_lecture_database(curriculum: Optional[str] = None) -> List[Dict[str, Any]]:
+    if curriculum == "reiwa6_or_earlier":
+        return CHS_LECTURE_DATABASE_REIWA6 if CHS_LECTURE_DATABASE_REIWA6 else CHS_LECTURE_DATABASE
+    return CHS_LECTURE_DATABASE if CHS_LECTURE_DATABASE else CHS_LECTURE_DATABASE_REIWA6
+
 app = FastAPI(
     title="EneKoma Campus Navigator API",
     version="2.1.0",
@@ -613,6 +623,262 @@ def parse_room_detail(room: str) -> str:
     return f"{room}教室（キャンパス構内）"
 
 # ==========================================
+# 時間割・空き教室・移動ナビゲーション支援関数
+# ==========================================
+ALL_CAMPUS_ROOMS = [
+    # 1号館 (13室)
+    "122", "123", "124", "125", "126", "127A", "127B", "130", "131", "132", "133", "134", "135", "136", "137A", "137B", "138", "139", "141", "151",
+    # 2号館 (6室)
+    "2201", "2202", "2301", "2302", "2401", "2402",
+    # 3号館 (35室)
+    "3101", "3102", "3103", "3104", "3105", "3106", "3107", "3108", "3109", "3110",
+    "3201", "3202", "3203", "3204", "3205", "3206", "3207", "3208", "3209", "3210",
+    "3301", "3302", "3303", "3304", "3305", "3306", "3307", "3308", "3309", "3310",
+    "3401", "3402", "3403", "3404", "3405", "3406", "3407", "3408", "3409", "3410",
+    "3501", "3502", "3503", "3504", "3505", "3506", "3507", "3508", "3509", "3510",
+    # 4号館 (10室)
+    "411", "412", "421", "422", "431", "432", "441", "442", "443", "444"
+]
+
+def py_find_free_rooms(target_day: Optional[str] = None, target_period: Optional[int] = None, target_building: Optional[str] = None, curriculum: Optional[str] = None) -> str:
+    now = datetime.datetime.now()
+    day_names = ["月", "火", "水", "木", "金", "土", "日"]
+    current_day = day_names[now.weekday()]
+    
+    current_hour = now.hour
+    current_minute = now.minute
+    is_lunch_time = (current_hour == 12 and current_minute >= 10) or (current_hour == 13 and current_minute == 0)
+    
+    if (not target_period and is_lunch_time) or (target_day == "昼" or "昼" in str(target_period)):
+        return (
+            "🔔 **【昼休み（12:10〜13:00）の講義室開放ルール】**\n\n"
+            "文理学部では、昼休みの時間帯は**原則としてすべての普通講義室（1号館・2号館・3号館・4号館）が自習・飲食・休憩のために開放**されています！\n\n"
+            "【昼休みの利用マナー・注意事項】\n"
+            "・飲食後はゴミを必ず分別してゴミ箱に捨て、机をきれいに保ちましょう。\n"
+            "・次の3限（13:00開始）の授業で使用する学生・教員が入室してきた場合は、速やかに席をお譲りください。\n"
+            "・大声での会話や騒音は控え、静かな学習環境の維持にご協力ください。"
+        )
+    
+    calc_day = target_day or (current_day if current_day in ["月", "火", "水", "木", "金", "土"] else "月")
+    calc_period = target_period or 2
+    
+    db = get_lecture_database(curriculum)
+    occupied_rooms = set()
+    for c in db:
+        if c.get("day") == calc_day and c.get("period") == calc_period:
+            r = c.get("room", "")
+            for p in re.findall(r"[1-4]\d{2,3}[a-zA-Z]?", r):
+                occupied_rooms.add(p.upper())
+                
+    free_rooms = [r for r in ALL_CAMPUS_ROOMS if r not in occupied_rooms]
+    if target_building:
+        b_num = target_building[0]
+        free_rooms = [r for r in free_rooms if r.startswith(b_num)]
+        
+    cur_label = "（令和6年度以前入学者向け旧カリDB参照）" if curriculum == "reiwa6_or_earlier" else "（令和7年度以降入学者向け新カリDB参照）"
+    lines = [
+        f"📍 **【空き教室・自習スポット検索結果】** {cur_label}",
+        f"📅 **検索対象**: **{calc_day}曜日 {calc_period}限**" + (f"（{target_building}）" if target_building else ""),
+        f"✨ **利用可能な空き教室数**: **{len(free_rooms)}室**",
+        ""
+    ]
+    
+    b1 = [r for r in free_rooms if r.startswith("1")]
+    b2 = [r for r in free_rooms if r.startswith("2")]
+    b3 = [r for r in free_rooms if r.startswith("3")]
+    b4 = [r for r in free_rooms if r.startswith("4")]
+    
+    if b3:
+        lines.append(f"■ **3号館（{len(b3)}室）**:")
+        lines.append("  " + ", ".join([get_room_short_label(r) for r in b3[:10]]) + (" など" if len(b3) > 10 else ""))
+    if b4:
+        lines.append(f"■ **4号館（{len(b4)}室）**:")
+        lines.append("  " + ", ".join([get_room_short_label(r) for r in b4]))
+    if b1:
+        lines.append(f"■ **1号館（{len(b1)}室）**:")
+        lines.append("  " + ", ".join([get_room_short_label(r) for r in b1[:8]]) + (" など" if len(b1) > 8 else ""))
+    if b2:
+        lines.append(f"■ **2号館（{len(b2)}室）**:")
+        lines.append("  " + ", ".join([get_room_short_label(r) for r in b2]))
+        
+    lines.append("")
+    lines.append("💡 **自習時のワンポイント**:")
+    lines.append("・自販機・給水所が充実しているのは **3号館1階** および **4号館1階** です。")
+    lines.append("・静かに自習したい場合は **日本大学文理学部図書館（平日20時まで）** や **ラーニングコモンズ** も併せてご利用ください。")
+    return "\n".join(lines)
+
+def py_calculate_transit(room_from_raw: str, room_to_raw: str) -> str:
+    m_from = re.search(r"[1-4]\d{2,3}[a-zA-Z]?", room_from_raw)
+    m_to = re.search(r"[1-4]\d{2,3}[a-zA-Z]?", room_to_raw)
+    if not m_from or not m_to:
+        return f"{room_from_raw}から{room_to_raw}への移動案内：教室番号をご確認ください。"
+    
+    r_from = m_from.group(0).upper()
+    r_to = m_to.group(0).upper()
+    b_from = int(r_from[0])
+    b_to = int(r_to[0])
+    lbl_from = get_room_short_label(r_from)
+    lbl_to = get_room_short_label(r_to)
+    
+    same_b = (b_from == b_to)
+    is_elevator_warning = (b_from == 3 and int(r_from[1]) >= 4) or (b_to == 3 and int(r_to[1]) >= 4)
+    
+    if same_b:
+        estimated_min = 3
+        feasibility = "余裕で間に合います（通常移動時間：約2〜3分）"
+        color = "🟢"
+    elif (b_from == 3 and b_to == 4) or (b_from == 4 and b_to == 3):
+        estimated_min = 5
+        feasibility = "移動可能です（通常移動時間：約4〜5分）"
+        color = "🟢"
+    elif (b_from == 3 and b_to == 1) or (b_from == 1 and b_to == 3):
+        estimated_min = 6
+        feasibility = "10分休み内で移動可能です（通常移動時間：約5〜6分）"
+        color = "🟡"
+    else:
+        estimated_min = 7
+        feasibility = "少し急ぎ足での移動を推奨します（通常移動時間：約6〜7分）"
+        color = "🟡"
+        
+    lines = [
+        f"⚡ **【キャンパス移動ナビ・10分休み最適化】**",
+        f"🚶 **ルート**: **{lbl_from}** ➔ **{lbl_to}**",
+        f"{color} **移動判定**: **{feasibility}**",
+        f"⏱️ **想定所要時間**: 約 **{estimated_min}分**（10分休み残り約{10 - estimated_min}分）",
+        ""
+    ]
+    if is_elevator_warning:
+        lines.append("⚠️ **【エレベーター混雑警告】** 3号館4階・5階への移動時は、休み時間にエレベーター前に長い列ができるため、**エスカレーターまたは中央階段**を優先して利用すると遅刻を防げます。")
+    if b_to == 1 and int(r_to[1]) >= 4:
+        lines.append("ℹ️ **【トイレ案内】** 1号館4階・5階にはお手洗いがありません。移動途中の2階または3階のお手洗いを事前にご利用ください。")
+    if b_to == 4 and r_to != "411" and r_to != "412":
+        lines.append("💧 **【給水所案内】** 4号館の給水所（冷水機）は1階のみ利用可能です。上階に登る前に水分補給をお済ませください。")
+    lines.append("💡 **移動アドバイス**: チャイムが鳴ったら速やかに移動を開始し、教室に到着したら席を確保して次の準備をしましょう！")
+    return "\n".join(lines)
+
+def py_get_room_daily_schedule(room_raw: str, target_day: Optional[str] = None, curriculum: Optional[str] = None) -> str:
+    m = re.search(r"[1-4]\d{2,3}[a-zA-Z]?", room_raw)
+    if not m:
+        return f"{room_raw}教室の番号をご確認ください。"
+    r = m.group(0).upper()
+    lbl = get_room_short_label(r)
+    now = datetime.datetime.now()
+    day_names = ["月", "火", "水", "木", "金", "土", "日"]
+    calc_day = target_day or (day_names[now.weekday()] if now.weekday() < 6 else "月")
+    
+    db = get_lecture_database(curriculum)
+    cur_label = "（令和6年度以前入学者向け旧カリDB参照）" if curriculum == "reiwa6_or_earlier" else "（令和7年度以降入学者向け新カリDB参照）"
+    
+    lines = [
+        f"📅 **【教室利用スケジュール: {lbl}】** {cur_label}",
+        f"🗓️ **対象曜日**: **{calc_day}曜日**",
+        ""
+    ]
+    for p in range(1, 6):
+        hits = [c for c in db if c.get("day") == calc_day and c.get("period") == p and r in c.get("room", "").upper()]
+        if hits:
+            course = hits[0]
+            lines.append(f"・**{p}限**: 🔴 **{course['name']}**（{course.get('teacher', '担当教員')} 先生 / {course.get('department', 'CHS')}）")
+        else:
+            lines.append(f"・**{p}限**: 🟢 **空きコマ（自習・休憩利用可能）**")
+            
+    lines.append("")
+    lines.append("💡 昼休み（12:10〜13:00）は全講義室が食事・自習スペースとして開放されています。")
+    return "\n".join(lines)
+
+def py_suggest_courses_for_free_period(day: str, period: int, category: str = "", curriculum: Optional[str] = None) -> str:
+    db = get_lecture_database(curriculum)
+    candidates = [c for c in db if c.get("day") == day and c.get("period") == period]
+    if category:
+        candidates = [c for c in candidates if category in c.get("department", "") or category in c.get("name", "")]
+        
+    cur_label = "（令和6年度以前入学者向け旧カリDB参照）" if curriculum == "reiwa6_or_earlier" else "（令和7年度以降入学者向け新カリDB参照）"
+    lines = [
+        f"💡 **【空きコマ活用・おすすめ履修科目提案】** {cur_label}",
+        f"🕒 **対象時間帯**: **{day}曜 {period}限**" + (f"（希望区分: {category}）" if category else ""),
+        "開講科目のうち、総合教育・外国語・教養系のおすすめ講義です：",
+        ""
+    ]
+    for c in candidates[:6]:
+        room_lbl = get_room_short_label(c.get("room", ""))
+        lines.append(f"・**{c['name']}**（{c.get('teacher', '')} 先生）")
+        lines.append(f"  教室: **{room_lbl}** | 所属区分: {c.get('department', '教養')} | 配当: {c.get('grade', '全学年')}")
+        
+    lines.append("")
+    lines.append("📌 履修登録時はシラバスで講義概要と評価基準、年間履修登録上限（CAP制40単位・要覧 p.35）を必ず確認してください。")
+    return "\n".join(lines)
+
+def py_check_course_conflicts(course_names: List[str], curriculum: Optional[str] = None) -> str:
+    db = get_lecture_database(curriculum)
+    found_courses = []
+    for name in course_names:
+        for c in db:
+            if name.lower() in c.get("name", "").lower():
+                found_courses.append(c)
+                break
+                
+    slots: Dict[str, List[Dict[str, Any]]] = {}
+    for c in found_courses:
+        key = f"{c['day']}_{c['period']}"
+        if key not in slots:
+            slots[key] = []
+        slots[key].append(c)
+        
+    conflicts = {k: v for k, v in slots.items() if len(v) > 1}
+    lines = ["⚠️ **【時間割重複（バッティング）チェック結果】**", ""]
+    if conflicts:
+        lines.append("🚨 **【重複が検知されました！】** 以下の科目が同一時限に開講されているため、同時に履修登録できません：")
+        lines.append("")
+        for k, clist in conflicts.items():
+            d, p = k.split("_")
+            lines.append(f"■ **{d}曜 {p}限**（{len(clist)}科目衝突）:")
+            for c in clist:
+                lines.append(f"  ・『{c['name']}』（担当：{c['teacher']} 先生 / 教室：{get_room_short_label(c['room'])}）")
+        lines.append("")
+        lines.append("💡 **解決策**: 片方の科目を別の曜日・時限の開講クラス（または別科目）に変更してください。")
+    else:
+        lines.append("✅ **【重複なし】** 指定された科目はすべて異なる時限に開講されており、正常に同時履修登録可能です！")
+        for c in found_courses:
+            lines.append(f"・『{c['name']}』: {c['day']}曜 {c['period']}限（{get_room_short_label(c['room'])}）")
+    return "\n".join(lines)
+
+def py_propose_automatic_schedule(dept: str, grade: int, curriculum: Optional[str] = None, reqs: Optional[List[str]] = None) -> str:
+    db = get_lecture_database(curriculum)
+    cur_label = "（令和6年度以前入学者向け旧カリDB参照）" if curriculum == "reiwa6_or_earlier" else "（令和7年度以降入学者向け新カリDB参照）"
+    
+    dept_courses = [c for c in db if dept in c.get("department", "") or (reqs and any(r in c.get("name", "") for r in reqs))]
+    
+    schedule_grid = {}
+    for c in dept_courses:
+        slot = f"{c['day']}_{c['period']}"
+        if slot not in schedule_grid:
+            schedule_grid[slot] = c
+            
+    lines = [
+        f"📅 **【学部要覧公式連動・必修組み込み自動時間割提案】** {cur_label}",
+        f"🎓 **対象**: **{dept}**（{grade}年次モデル）",
+        "公式『学部要覧』の学科必修科目・全学共通科目を優先配置し、空きコマに教養科目をバランスよく配分したモデル時間割です：",
+        ""
+    ]
+    days = ["月", "火", "水", "木", "金"]
+    for d in days:
+        day_items = []
+        for p in range(1, 6):
+            slot = f"{d}_{p}"
+            if slot in schedule_grid:
+                item = schedule_grid[slot]
+                day_items.append(f"  ・{p}限: **{item['name']}**（{get_room_short_label(item['room'])}）")
+        if day_items:
+            lines.append(f"■ **{d}曜日**:")
+            lines.extend(day_items)
+            
+    lines.append("")
+    lines.append("💡 **履修設計のポイント**:")
+    lines.append("・学科必修科目を最優先で時間割に固定し、空いたコマに総合教育（人文・社会・理学）や外国語科目を配置しています。")
+    lines.append("・文理学部の年間履修上限は**40単位（CAP制・要覧 p.35）**です。無理のないペース配分を心がけてください。")
+    return "\n".join(lines)
+
+# ==========================================
 # 自販機データベース（校舎ナレッジ完全準拠）
 # ==========================================
 VENDING_MACHINES_DB = [
@@ -1151,6 +1417,91 @@ def answer_navigator_query(query: str, user_profile: Optional[Dict[str, Any]] = 
             "・アプリ: Coke ON（Coke ON Pay）\n"
             "・決済: クレジットカードタッチ決済（Visa/Mastercard）〇、PayPay〇、交通系IC（モバイル）〇、※物理交通系IC直タッチ×（現金〇）"
         )
+
+    curriculum = user_profile.get("admissionYear") if user_profile else None
+
+    # 2.1. リアルタイム空き教室・自習スポット検索
+    if any(k in q_lower for k in ["空き教室", "空いてる教室", "空いている教室", "自習室", "自習スポット", "自習できる", "いま空い", "今空い", "教室空い"]):
+        day_match = None
+        for d in ["月", "火", "水", "木", "金", "土"]:
+            if f"{d}曜" in q or d in q:
+                day_match = d
+                break
+        period_match = None
+        for p in range(1, 6):
+            if f"{p}限" in q or f"{p}コマ" in q:
+                period_match = p
+                break
+        building_match = None
+        for b in ["1号館", "2号館", "3号館", "4号館"]:
+            if b in q or b[0] + "号館" in q:
+                building_match = b
+                break
+        return py_find_free_rooms(day_match, period_match, building_match, curriculum)
+
+    # 2.2. キャンパス移動・10分休みの最適化ナビ
+    if any(k in q_lower for k in ["移動", "10分休み", "間に合う", "から", "ルート", "行き方"]):
+        rooms_found = re.findall(r"([1-4]\d{2,3}[a-zA-Z]?)", q)
+        if len(rooms_found) >= 2:
+            return py_calculate_transit(rooms_found[0], rooms_found[1])
+
+    # 2.3. 教室の利用スケジュール
+    if any(k in q_lower for k in ["何限に使われ", "何限", "教室の予定", "教室の利用", "利用状況", "使われてる", "使用スケジュール"]):
+        m_r = re.search(r"([1-4]\d{2,3}[a-zA-Z]?)", q)
+        if m_r:
+            day_match = None
+            for d in ["月", "火", "水", "木", "金", "土"]:
+                if f"{d}曜" in q or d in q:
+                    day_match = d
+                    break
+            return py_get_room_daily_schedule(m_r.group(1), day_match, curriculum)
+
+    # 2.4. 履修登録サポート＆「空きコマ」活用提案
+    if any(k in q_lower for k in ["空きコマ", "空いてるコマ", "コマを埋め", "埋めたい", "おすすめの総合", "コマに入る"]):
+        day_match = "火"
+        for d in ["月", "火", "水", "木", "金", "土"]:
+            if f"{d}曜" in q or d in q:
+                day_match = d
+                break
+        period_match = 3
+        for p in range(1, 6):
+            if f"{p}限" in q or f"{p}コマ" in q:
+                period_match = p
+                break
+        cat = "総合" if "総合" in q else "外国語" if "外国語" in q else "基礎" if "基礎" in q else ""
+        return py_suggest_courses_for_free_period(day_match, period_match, cat, curriculum)
+
+    # 2.5. 時間割重複（バッティング）チェック
+    if any(k in q_lower for k in ["被っ", "重複", "バッティング", "重なって"]):
+        db = get_lecture_database(curriculum)
+        candidate_courses = []
+        for c in db:
+            c_name = c.get("name", "")
+            if c_name and c_name in q and c_name not in candidate_courses:
+                candidate_courses.append(c_name)
+        if len(candidate_courses) >= 2:
+            return py_check_course_conflicts(candidate_courses, curriculum)
+
+    # 2.6. 学部要覧連動「必修組み込み済みの自動スケジュール提案」
+    if any(k in q_lower for k in ["時間割作って", "時間割提案", "スケジュール作って", "おすすめの時間割", "必修時間割", "基本時間割", "時間割を組んで"]):
+        dept = user_profile.get("department", "情報科学科") if user_profile else "情報科学科"
+        grade = user_profile.get("grade", 1) if user_profile else 1
+        return py_propose_automatic_schedule(dept, grade, curriculum)
+
+    # 2.7. 講義・教員名の逆引き検索
+    if len(q) >= 2 and any(k in q for k in ["先生", "教授", "講義", "授業", "開講", "何曜"]):
+        clean_q = re.sub(r"(先生|教授|講義|授業|って|何曜|何限|いつ|どこ|教えて|の)", "", q).strip()
+        if len(clean_q) >= 2:
+            db = get_lecture_database(curriculum)
+            hits = [c for c in db if clean_q in c.get("name", "") or clean_q in c.get("teacher", "")]
+            if hits:
+                cur_label = "（令和6年度以前入学者向け旧カリDB参照）" if curriculum == "reiwa6_or_earlier" else "（令和7年度以降入学者向け新カリDB参照）"
+                lines = [f"🔍 **【講義・教員 逆引き検索結果: 『{clean_q}』】** {cur_label}", ""]
+                for h in hits[:8]:
+                    room_lbl = get_room_short_label(h.get("room", ""))
+                    lines.append(f"・**{h['name']}**（担当：{h['teacher']} 先生）")
+                    lines.append(f"  時間: **{h['day']}曜 {h['period']}限** | 教室: **{room_lbl}** | 所属: {h.get('department', 'CHS')}")
+                return "\n".join(lines).strip()
 
     # 3. 教室番号直接入力判定（「421」「3505」「124」等の直打ち・質問）
     m_room = re.search(r"([1-4]\d{2,3}[a-zA-Z]?)", q)
