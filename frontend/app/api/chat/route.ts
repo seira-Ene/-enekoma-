@@ -746,11 +746,11 @@ function answerLocally(query: string, userProfile?: UserProfileData): string {
 }
 
 export async function GET() {
-  const serverKey = (process.env.GEMINI_API_KEY || '').trim();
+  const serverKey = (process.env.GEMINI_API_KEY || process.env.NEXT_PUBLIC_GEMINI_API_KEY || '').trim();
   return NextResponse.json({
     hasServerKey: serverKey.length > 0,
     serverKeyPrefix: serverKey.length > 8 ? `${serverKey.slice(0, 6)}...` : undefined,
-    availableModels: ['gemini-1.5-flash', 'gemini-2.0-flash', 'gemini-1.5-pro']
+    availableModels: ['gemini-3.8-flash', 'gemini-flash-latest', 'gemini-3.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash']
   });
 }
 
@@ -758,7 +758,7 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const query = (body.query || '').trim();
-    const apiKey = (body.apiKey || process.env.GEMINI_API_KEY || '').trim();
+    const apiKey = (body.apiKey || process.env.GEMINI_API_KEY || process.env.NEXT_PUBLIC_GEMINI_API_KEY || '').trim();
     const history = body.history || [];
     const image = body.image || null;
     const userProfile: UserProfileData = body.userProfile || null;
@@ -854,11 +854,13 @@ export async function POST(req: NextRequest) {
       }
 
       const CANDIDATE_MODELS = [
-        'gemini-1.5-flash',
+        'gemini-3.8-flash',
+        'gemini-flash-latest',
+        'gemini-3.5-flash',
+        'gemini-3.7-flash',
+        'gemini-3.1-flash-lite',
         'gemini-2.0-flash',
-        'gemini-1.5-flash-latest',
-        'gemini-1.5-flash-8b',
-        'gemini-1.5-pro'
+        'gemini-1.5-flash'
       ];
 
       let lastErrorStatus: number | null = null;

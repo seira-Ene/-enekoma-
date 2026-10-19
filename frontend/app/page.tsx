@@ -174,8 +174,8 @@ export default function UnifiedAssistantPage() {
   // 初期化：localStorageと環境キーの取得
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      const savedKey = localStorage.getItem('enekoma_gemini_api_key') || '';
-      setApiKey(savedKey);
+      const savedKey = localStorage.getItem('enekoma_gemini_api_key') || process.env.NEXT_PUBLIC_GEMINI_API_KEY || '';
+      if (savedKey) setApiKey(savedKey);
 
       fetch('/api/chat')
         .then((res) => res.json())
@@ -439,7 +439,7 @@ export default function UnifiedAssistantPage() {
       if (cleanedKey) {
         try {
           const directRes = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${cleanedKey}`,
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${cleanedKey}`,
             {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -603,8 +603,8 @@ export default function UnifiedAssistantPage() {
     // 2. サーバー側でエラーだった場合、ブラウザからGoogle APIへ直接テスト
     if (!testSucceeded && keyToTest) {
       try {
-        const directRes = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${keyToTest}`,
+        let directRes = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${keyToTest}`,
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -613,9 +613,21 @@ export default function UnifiedAssistantPage() {
             })
           }
         );
+        if (!directRes.ok) {
+          directRes = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${keyToTest}`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                contents: [{ role: 'user', parts: [{ text: '日大文理' }] }]
+              })
+            }
+          );
+        }
         if (directRes.ok) {
           testSucceeded = true;
-          replyModel = 'gemini-1.5-flash';
+          replyModel = 'gemini-3.8-flash';
         } else {
           const errData = await directRes.json().catch(() => ({}));
           const googleMsg = errData?.error?.message || `HTTP ${directRes.status}`;

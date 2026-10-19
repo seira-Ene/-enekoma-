@@ -1241,10 +1241,13 @@ SYSTEM_PROMPT = """
 
 def call_gemini_api(query: str, history: List[Dict[str, Any]], api_key: str, image: Optional[Dict[str, Any]] = None, user_profile: Optional[Dict[str, Any]] = None, image_type: Optional[str] = None):
     candidate_models = [
-        "gemini-1.5-flash",
+        "gemini-3.8-flash",
+        "gemini-flash-latest",
+        "gemini-3.5-flash",
+        "gemini-3.7-flash",
+        "gemini-3.1-flash-lite",
         "gemini-2.0-flash",
-        "gemini-1.5-flash-latest",
-        "gemini-1.5-pro"
+        "gemini-1.5-flash"
     ]
     last_error = None
     for model in candidate_models:
@@ -1965,21 +1968,22 @@ def parse_timetable(item: TimetableItem):
 
 @app.get("/api/chat")
 def get_chat_status():
-    server_key = os.environ.get("GEMINI_API_KEY", "").strip()
+    server_key = (os.environ.get("GEMINI_API_KEY") or os.environ.get("NEXT_PUBLIC_GEMINI_API_KEY") or "").strip()
     return {
         "hasServerKey": bool(server_key),
         "availableModels": [
-            "gemini-1.5-flash",
+            "gemini-3.8-flash",
+            "gemini-flash-latest",
+            "gemini-3.5-flash",
             "gemini-2.0-flash",
-            "gemini-1.5-flash-latest",
-            "gemini-1.5-pro"
+            "gemini-1.5-flash"
         ]
     }
 
 @app.post("/api/chat")
 def unified_chat(req: ChatRequest):
     q = (req.query or "").strip()
-    api_k = (req.apiKey or os.environ.get("GEMINI_API_KEY", "")).strip()
+    api_k = (req.apiKey or os.environ.get("GEMINI_API_KEY") or os.environ.get("NEXT_PUBLIC_GEMINI_API_KEY") or "").strip()
     if api_k:
         gemini_reply, model_name, err_msg = call_gemini_api(q, req.history or [], api_k, req.image, req.userProfile, req.imageType)
         if gemini_reply:
