@@ -144,6 +144,100 @@ const SYSTEM_PROMPT = `
 
 ### 5. 副専攻（全24種・要覧 p.180-192）
 指定科目16単位以上修得で修了証書。所属学科と同一の学科副専攻は修了認定不可。理系学科生は科学リテラシー副専攻不可。
+
+---
+
+## 【校舎・教室配置ナレッジベース】
+### 1. 4号館
+- 1階: 411教室（正面入って左側・男子トイレ側 / 給水所［冷水機］あり / トイレ前ゴミ箱あり）、412教室（正面入って右側・女子トイレ側 / 給水所［冷水機］あり / トイレ前ゴミ箱あり）
+- 2階: 421教室（階段登って左側・男子トイレ側 / トイレ前ゴミ箱あり ※給水所は1階のみ）、422教室（階段登って右側・女子トイレ側 / トイレ前ゴミ箱あり ※給水所は1階のみ）
+- 3階: 431教室（階段登って右側・男子トイレ側 / トイレ前ゴミ箱あり ※給水所は1階のみ）、432教室（階段登って左側・女子トイレ側 / トイレ前ゴミ箱あり ※給水所は1階のみ）
+- 4階: 441教室（階段登って右側奥・男子側奥）、442教室（階段登って右側手前・男子側手前）、443教室（階段登って左側手前・女子側手前）、444教室（階段登って左側奥・女子側奥）。トイレ前ゴミ箱あり。※給水所は1階のみ。
+
+### 2. 3号館
+- 1階〜5階: 4桁教室番号（例: 3101〜3510）。「3306」「3505」等の数字は省略厳禁。
+- フロア配置: 下2桁が01〜05はエスカレーターを出て右側（エレベーター出て左側・男子トイレ側）。下2桁が06〜10はエスカレーターを出て左側（エレベーター出て右側・女子トイレ側）。
+- ゴミ箱: 各階に設置。
+- 注意点: 上層階（4F/5F）は10分休みにエレベーター前に長い列ができるため、エスカレーターまたは中央階段の利用を推奨。
+
+### 3. 1号館
+- 2階: 122〜124教室（階段登って左側・奥に女子トイレ）、125〜127B教室（階段登って右側・手前に男子トイレ/奥に女子トイレ）。各階ゴミ箱あり。
+- 3階: 130教室（階段正面・左奥男子/右奥女子）、131〜134/138教室（階段登って左側・奥に男子トイレ）、135〜137B/139教室（階段登って右側・奥に女子トイレ）。各階ゴミ箱あり。
+- 4階・5階: 141教室（4階正面）、151教室（5階正面）。※重要注意：1号館の4階・5階にはトイレが設置されていません。2階または3階のトイレをご利用ください。
+
+### 4. 2号館
+- 2201〜2402教室。※重要注意：2号館内には自動販売機およびゴミ箱は設置されていません。他号館の設備をご利用ください。
+
+---
+
+## 【学内自動販売機・商品・価格・決済アプリ完全ナレッジベース】
+### 1. 4号館 1階（給水所横・サントリー自販機）
+- アプリ: ジハンピ
+- 決済方法: PayPay〇、交通系IC（モバイル）〇、現金〇（※物理交通系IC直接タッチ×、クレカ直タッチ×）
+- 主な商品・価格:
+  - サントリー天然水 550ml: 80円（学内最安値！）
+  - ZONe スカッと透明: 80円（激安エナジードリンク！）
+  - GREEN DA・KA・RA やさしい麦茶 600ml: 90円
+  - レッドブル（Red Bull）: 170円（コンビニよりお得！）
+  - 伊右衛門 特茶/焙じ茶: 100〜110円
+  - プレミアムボス 微糖: 130円
+
+### 2. 3号館 1階（食堂側・自販機コーナー計4台）
+- ①サントリー白（水メイン）/ アプリ: ジハンピ
+  - サントリー天然水: 80円（学内最安値！）
+  - GREEN DA・KA・RA やさしい麦茶: 90円
+  - ぷるぷるプリン缶: 100円（大人気デザート飲料！）
+  - 伊右衛門 特茶/焙じ茶: 100〜110円
+  - リプトン 白の贅沢ミルクティー: 110円
+  - BOSS各種（ブラック・アイスコーヒー等）: 90〜140円
+- ②サントリー白（スポーツ/エナジー系）/ アプリ: ジハンピ
+  - レモン強炭酸水: 90円
+  - やさしい麦茶: 90円
+  - ぷるぷるプリン缶: 100円
+  - レッドブル: 170円（格安！）
+  - モンスターエナジー（白・青等）: 180〜190円
+- ③サントリー青 / アプリ: ジハンピ
+  - ペプシコーラ生 600ml: 100円（炭酸最安！）
+  - ZONe NOPE: 80円
+  - レッドブル: 170円
+  - BOSS 贅沢微糖: 90円
+  - リプトン レモンティー: 110円
+- ④コカ・コーラ赤 / アプリ: Coke ON（Coke ON Pay）
+  - ★決済特徴: クレジットカードタッチ決済（Visa / Mastercard）対応！ PayPay〇、モバイル交通系IC〇、現金〇
+  - コカ・コーラ 500ml: 140円
+  - い・ろ・は・す: 100〜110円
+  - 綾鷹 / やかんの麦茶: 110円
+  - ジョージア 各種: 90〜110円
+  - 紅茶花伝 ミルクティー / アロエ＆白ぶどう: 110円
+  - ファンタ グレープ / ドクターペッパー: 120円
+  - アクエリアス 500ml: 130円
+
+---
+
+## 【キャンパス施設 営業時間完全ナレッジベース】
+- **日本大学文理学部図書館（図書館棟）**:
+  - 月〜金（平日）: 09:00 - 20:00
+  - 土曜日: 09:00 - 19:00
+  - 日曜・祝日: 休館（授業実施日を除く）
+  - ※地下書庫への入庫および図書貸出手続きは閉館30分前まで。
+- **コンピュータセンター受付（3号館）**:
+  - 月〜金（平日）: 09:00 - 18:00
+  - 土曜日: 09:00 - 13:00
+  - 日曜・祝日: 休業
+  - ※学内Wi-Fi（CHS-Wi-Fi）設定・トラブル対応、PCアカウント発行窓口。
+- **ラーニング・コモンズ（本館1階）**:
+  - 月〜金（平日）: 08:00 - 18:00（サポートデスク対応 10:00 - 18:00）
+  - 土曜日: 08:00 - 17:00（サポートデスク対応 09:00 - 13:00）
+  - 日曜・祝日: 休館
+  - ※グループ学習、自習、プレゼン準備、PC利用可能。
+- **教務課窓口（本館1階）**:
+  - 月〜金（平日）: 09:00 - 17:00
+  - 土曜日: 09:00 - 13:00
+  - 日曜・祝日: 窓口休業
+  - ※履修登録相談、資格コース届出（司書・学芸員・社会教育主事）、副専攻申請、単位照会など。
+- **資料館**:
+  - 月〜金（平日）: 10:00 - 17:00
+  - 土曜日: 10:00 - 13:00
 `;
 
 // ローカルGPAシミュレーション計算（要覧 p.38-39準拠）
@@ -589,6 +683,15 @@ function answerLocally(query: string, userProfile?: UserProfileData): string {
   );
 }
 
+export async function GET() {
+  const serverKey = (process.env.GEMINI_API_KEY || '').trim();
+  return NextResponse.json({
+    hasServerKey: serverKey.length > 0,
+    serverKeyPrefix: serverKey.length > 8 ? `${serverKey.slice(0, 6)}...` : undefined,
+    availableModels: ['gemini-1.5-flash', 'gemini-2.0-flash', 'gemini-1.5-pro']
+  });
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -604,95 +707,128 @@ export async function POST(req: NextRequest) {
 
     // Google Gemini API呼び出し（APIキー設定時）
     if (apiKey) {
-      try {
-        const contents: any[] = [];
+      const contents: any[] = [];
 
-        for (const h of history) {
-          contents.push({
-            role: h.sender === 'user' ? 'user' : 'model',
-            parts: [{ text: h.text }]
-          });
-        }
-
-        let userPromptText = query;
-        if (!userPromptText && image) {
-          userPromptText = '添付された成績表画像をマルチモーダル解析し、『学部要覧』p.38-39の評価基準（S〜F）に従って修得済み科目名・単位数・評価・現在GPA・総修得単位数を読み取り、要約とプロフィール更新ブロックを出力してください。';
-        }
-
-        const profileContext = userProfile
-          ? `【ユーザープロフィール（『学部要覧』基準）】\n` +
-            `・所属学科: ${userProfile.department || '未設定'}\n` +
-            `・学年: ${userProfile.grade || 1}年\n` +
-            `・現在のGPA: ${userProfile.currentGpa ?? 2.40}\n` +
-            `・目標GPA: ${userProfile.targetGpa ?? 3.00}\n` +
-            `・修得済み総単位数: ${userProfile.currentCredits ?? 40}単位\n` +
-            `・今期履修中単位数: ${userProfile.semesterCredits ?? 16}単位\n` +
-            `・選択コース: ${(userProfile.selectedCourses || []).join(', ') || '未選択'}\n` +
-            `・選択副専攻: ${(userProfile.selectedMinors || []).join(', ') || '未選択'}\n` +
-            `・修得済み科目数: ${(userProfile.completedCourses || []).length}科目\n\n`
-          : '';
-
-        const currentTurnParts: any[] = [
-          { text: `${profileContext}${userPromptText}` }
-        ];
-
-        if (image && image.data) {
-          const cleanBase64 = image.data.replace(/^data:[^;]+;base64,/, '');
-          currentTurnParts.push({
-            inline_data: {
-              mime_type: image.mimeType || 'image/jpeg',
-              data: cleanBase64
-            }
-          });
-        }
-
+      for (const h of history) {
         contents.push({
-          role: 'user',
-          parts: currentTurnParts
+          role: h.sender === 'user' ? 'user' : 'model',
+          parts: [{ text: h.text }]
         });
-
-        const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
-        const res = await fetch(geminiUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            system_instruction: {
-              parts: [{ text: SYSTEM_PROMPT.trim() }]
-            },
-            contents,
-            generationConfig: {
-              temperature: 0.2,
-              maxOutputTokens: 1600
-            }
-          })
-        });
-
-        if (res.ok) {
-          const data = await res.json();
-          const candidateText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-          if (candidateText) {
-            let profileUpdate = null;
-            const updateMatch = candidateText.match(/```profile_update\s*([\s\S]*?)\s*```/);
-            if (updateMatch) {
-              try {
-                profileUpdate = JSON.parse(updateMatch[1]);
-              } catch (e) {
-                // ignore
-              }
-            }
-
-            return NextResponse.json({
-              reply: candidateText,
-              source: 'gemini',
-              profileUpdate
-            });
-          }
-        } else {
-          console.warn('Gemini API call failed with status:', res.status);
-        }
-      } catch (err) {
-        console.warn('Gemini API call error:', err);
       }
+
+      let userPromptText = query;
+      if (!userPromptText && image) {
+        userPromptText = '添付された成績表画像をマルチモーダル解析し、『学部要覧』p.38-39の評価基準（S〜F）に従って修得済み科目名・単位数・評価・現在GPA・総修得単位数を読み取り、要約とプロフィール更新ブロックを出力してください。';
+      }
+
+      const profileContext = userProfile
+        ? `【ユーザープロフィール（『学部要覧』基準）】\n` +
+          `・カリキュラム体系: ${userProfile.admissionYear === 'reiwa6_or_earlier' ? '令和6年度以前入学者（旧カリキュラム）' : '令和7年度以降入学者（新カリキュラム）'}\n` +
+          `・所属学科: ${userProfile.department || '未設定'}\n` +
+          `・学年: ${userProfile.grade || 1}年\n` +
+          `・現在のGPA: ${userProfile.currentGpa ?? 2.40}\n` +
+          `・目標GPA: ${userProfile.targetGpa ?? 3.00}\n` +
+          `・修得済み総単位数: ${userProfile.currentCredits ?? 40}単位\n` +
+          `・今期履修中単位数: ${userProfile.semesterCredits ?? 16}単位\n` +
+          `・選択コース: ${(userProfile.selectedCourses || []).join(', ') || '未選択'}\n` +
+          `・選択副専攻: ${(userProfile.selectedMinors || []).join(', ') || '未選択'}\n` +
+          `・修得済み科目数: ${(userProfile.completedCourses || []).length}科目\n\n`
+        : '';
+
+      const currentTurnParts: any[] = [
+        { text: `${profileContext}${userPromptText}` }
+      ];
+
+      if (image && image.data) {
+        const cleanBase64 = image.data.replace(/^data:[^;]+;base64,/, '');
+        currentTurnParts.push({
+          inline_data: {
+            mime_type: image.mimeType || 'image/jpeg',
+            data: cleanBase64
+          }
+        });
+      }
+
+      contents.push({
+        role: 'user',
+        parts: currentTurnParts
+      });
+
+      const CANDIDATE_MODELS = [
+        'gemini-1.5-flash',
+        'gemini-2.0-flash',
+        'gemini-1.5-flash-latest',
+        'gemini-1.5-pro'
+      ];
+
+      let lastErrorStatus: number | null = null;
+      let lastErrorMessage: string | null = null;
+
+      for (const model of CANDIDATE_MODELS) {
+        try {
+          const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+          const res = await fetch(geminiUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              system_instruction: {
+                parts: [{ text: SYSTEM_PROMPT.trim() }]
+              },
+              contents,
+              generationConfig: {
+                temperature: 0.3,
+                maxOutputTokens: 2048
+              }
+            })
+          });
+
+          if (res.ok) {
+            const data = await res.json();
+            const candidateText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (candidateText) {
+              let profileUpdate = null;
+              const updateMatch = candidateText.match(/```profile_update\s*([\s\S]*?)\s*```/);
+              if (updateMatch) {
+                try {
+                  profileUpdate = JSON.parse(updateMatch[1]);
+                } catch (e) {
+                  // ignore
+                }
+              }
+
+              return NextResponse.json({
+                reply: candidateText,
+                source: 'gemini',
+                model,
+                profileUpdate
+              });
+            }
+          } else {
+            lastErrorStatus = res.status;
+            try {
+              const errJson = await res.json();
+              lastErrorMessage = errJson?.error?.message || `HTTP ${res.status}`;
+            } catch {
+              lastErrorMessage = `HTTP ${res.status}`;
+            }
+            console.warn(`Gemini API call to ${model} failed with status:`, res.status, lastErrorMessage);
+            // If it's an API key invalid error, don't keep trying
+            if (res.status === 400 && lastErrorMessage?.toLowerCase().includes('api_key')) {
+              break;
+            }
+          }
+        } catch (err: any) {
+          lastErrorMessage = err?.message || String(err);
+          console.warn(`Gemini API call to ${model} threw error:`, err);
+        }
+      }
+
+      // APIキーが提供されたがエラーになった場合は、理由を添えてローカルエンジンで即時回答
+      const localReply = answerLocally(query || (image ? '成績表画像' : ''), userProfile);
+      return NextResponse.json({
+        reply: `⚠️ 【Gemini API接続エラー: ${lastErrorMessage || '応答なし'}】\nAPIキーの有効性をご確認ください。画面右上の「⚙️ API設定」からキーを再入力・更新できます。\n\n（※公式要覧ナレッジエンジンにより即時回答します）\n\n${localReply}`,
+        source: 'local'
+      });
     }
 
     // ローカルエンジンによる即時フォールバック（公式要覧準拠）

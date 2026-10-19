@@ -21,6 +21,7 @@ interface ChatMessage {
   shortLabel?: string;
   imagePreview?: string;
   source?: 'gemini' | 'local';
+  model?: string;
   timestamp: string;
 }
 
@@ -125,6 +126,9 @@ export default function UnifiedAssistantPage() {
   const [apiKey, setApiKey] = useState('');
   const [showApiKey, setShowApiKey] = useState(false);
   const [apiSaveStatus, setApiSaveStatus] = useState<string | null>(null);
+  const [hasServerKey, setHasServerKey] = useState(false);
+  const [isTestingKey, setIsTestingKey] = useState(false);
+  const [keyTestResult, setKeyTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
   // 学内早見表モーダル
   const [showDrawer, setShowDrawer] = useState(false);
@@ -137,11 +141,21 @@ export default function UnifiedAssistantPage() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // 初期化：localStorageからキー、プロフィール、メッセージを復元
+  // 初期化：localStorageからキー、プロフィール、メッセージを復元＆サーバー環境キー確認
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const savedKey = localStorage.getItem('enekoma_gemini_api_key') || '';
       setApiKey(savedKey);
+
+      // サーバー環境変数（.env）にGEMINI_API_KEYがあるか確認
+      fetch('/api/chat')
+        .then((res) => res.json())
+        .then((data) => {
+          if (data?.hasServerKey) {
+            setHasServerKey(true);
+          }
+        })
+        .catch(() => {});
 
       const savedProfile = localStorage.getItem('enekoma_user_profile');
       if (savedProfile) {
@@ -314,7 +328,8 @@ export default function UnifiedAssistantPage() {
         sender: 'assistant',
         text: mainText,
         shortLabel,
-        source: data.source || (apiKey.trim() ? 'gemini' : 'local'),
+        source: data.source || (apiKey.trim() || hasServerKey ? 'gemini' : 'local'),
+        model: data.model,
         timestamp: new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })
       };
 
@@ -386,6 +401,47 @@ export default function UnifiedAssistantPage() {
       setApiSaveStatus(null);
       setShowApiModal(false);
     }, 1200);
+  };
+
+  // Gemini API接続テスト
+  const handleTestApiKey = async () => {
+    const keyToTest = apiKey.trim();
+    if (!keyToTest && !hasServerKey) {
+      setKeyTestResult({ success: false, message: 'APIキーを入力してください。' });
+      return;
+    }
+    setIsTestingKey(true);
+    setKeyTestResult(null);
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          query: '日本大学文理学部の魅力を一言で教えて！',
+          apiKey: keyToTest,
+          userProfile
+        })
+      });
+      const data = await res.json();
+      if (data?.source === 'gemini') {
+        setKeyTestResult({
+          success: true,
+          message: `✓ 接続成功！Gemini AI（${data.model || '1.5 Flash'}）が正常に応答しました。柔軟な回答モードが有効です！`
+        });
+      } else {
+        setKeyTestResult({
+          success: false,
+          message: data?.reply?.startsWith('⚠️') ? data.reply : 'Geminiへの接続テストに失敗しました。APIキーをご確認ください。'
+        });
+      }
+    } catch (e: any) {
+      setKeyTestResult({
+        success: false,
+        message: `通信エラー: ${e?.message || '接続できませんでした'}`
+      });
+    } finally {
+      setIsTestingKey(false);
+    }
   };
 
   // リアルタイム履修不足計算結果
@@ -479,15 +535,15 @@ export default function UnifiedAssistantPage() {
           {/* API設定ボタン */}
           <button
             onClick={() => setShowApiModal(true)}
-            className={`flex items-center space-x-1 px-2.5 py-1.5 text-xs font-semibold rounded-lg border transition ${
-              apiKey.trim()
+            className={`flex items-center space-x-1.5 px-2.5 py-1.5 text-xs font-bold rounded-lg border transition shadow-2xs ${
+              apiKey.trim() || hasServerKey
                 ? 'bg-teal-50 hover:bg-teal-100 text-teal-800 border-teal-300'
-                : 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-300'
+                : 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-300 animate-pulse'
             }`}
-            title="Google Gemini API設定"
+            title="Google Gemini API設定（無料・柔軟回答モード）"
           >
-            <span className={`w-2 h-2 rounded-full ${apiKey.trim() ? 'bg-teal-500 animate-pulse' : 'bg-amber-500'}`} />
-            <span>{apiKey.trim() ? 'Gemini AI' : 'API設定'}</span>
+            <span className={`w-2 h-2 rounded-full ${apiKey.trim() || hasServerKey ? 'bg-teal-500 animate-pulse' : 'bg-amber-500'}`} />
+            <span>{apiKey.trim() || hasServerKey ? '⚡ Gemini AI 連携中' : '🔑 Gemini API設定 (無料)'}</span>
           </button>
 
           {/* 履歴削除ボタン */}
@@ -531,11 +587,12 @@ export default function UnifiedAssistantPage() {
                   <div className="flex items-center space-x-1.5">
                     <span className="font-bold text-emerald-800">EneKoma（学部要覧公式準拠）</span>
                     {msg.source === 'gemini' ? (
-                      <span className="px-1.5 py-0.2 rounded bg-teal-100 text-teal-800 text-[10px] font-semibold">
-                        Gemini AI
+                      <span className="px-2 py-0.5 rounded-full bg-gradient-to-r from-teal-500 to-emerald-600 text-white text-[10px] font-bold shadow-2xs flex items-center space-x-1">
+                        <span>✨</span>
+                        <span>Gemini AI {msg.model ? `(${msg.model})` : '(柔軟回答)'}</span>
                       </span>
                     ) : (
-                      <span className="px-1.5 py-0.2 rounded bg-slate-100 text-slate-600 text-[10px] font-semibold">
+                      <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 text-[10px] font-semibold">
                         公式要覧エンジン
                       </span>
                     )}
@@ -1240,15 +1297,36 @@ export default function UnifiedAssistantPage() {
                 </ol>
               </div>
 
+              {hasServerKey && (
+                <div className="p-3 bg-teal-50 border border-teal-200 rounded-xl text-xs text-teal-900 flex items-center space-x-2">
+                  <span className="text-base">⚡</span>
+                  <div>
+                    <div className="font-bold text-teal-800">サーバー側でGemini APIキーが設定されています</div>
+                    <div className="text-[11px] text-teal-700">追加のキー入力をしなくても、全自動でGemini AIによる柔軟回答が利用可能です。別の独自キーを使いたい場合は以下に入力してください。</div>
+                  </div>
+                </div>
+              )}
+
               <div className="space-y-1.5">
-                <label className="block font-semibold text-slate-800 text-xs">
-                  Gemini API Key:
+                <label className="block font-semibold text-slate-800 text-xs flex items-center justify-between">
+                  <span>Gemini API Key:</span>
+                  <a
+                    href="https://aistudio.google.com/app/apikey"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-teal-600 font-bold underline hover:text-teal-800 text-[11px]"
+                  >
+                    APIキーを無料で取得 (1分) ↗
+                  </a>
                 </label>
                 <div className="relative">
                   <input
                     type={showApiKey ? 'text' : 'password'}
                     value={apiKey}
-                    onChange={(e) => setApiKey(e.target.value)}
+                    onChange={(e) => {
+                      setApiKey(e.target.value);
+                      setKeyTestResult(null);
+                    }}
                     placeholder="AIzaSy..."
                     className="w-full px-3 py-2 pr-16 text-xs sm:text-sm border border-slate-300 rounded-xl focus:outline-none focus:border-teal-500 font-mono"
                   />
@@ -1260,10 +1338,30 @@ export default function UnifiedAssistantPage() {
                     {showApiKey ? '隠す' : '表示'}
                   </button>
                 </div>
-                <p className="text-[11px] text-slate-400">
-                  ※APIキーはお使いのブラウザ内（localStorage）に安全に保存され、第三者へ送信されません。
-                </p>
+                <div className="flex items-center justify-between text-[11px] pt-1">
+                  <span className="text-slate-400">※ブラウザ内（localStorage）に安全に保存されます。</span>
+                  <button
+                    type="button"
+                    onClick={handleTestApiKey}
+                    disabled={isTestingKey || (!apiKey.trim() && !hasServerKey)}
+                    className="px-2.5 py-1 rounded bg-slate-100 hover:bg-teal-50 text-slate-700 hover:text-teal-800 font-bold border border-slate-200 transition disabled:opacity-50"
+                  >
+                    {isTestingKey ? '接続テスト中...' : '⚡ 接続テスト'}
+                  </button>
+                </div>
               </div>
+
+              {keyTestResult && (
+                <div
+                  className={`p-3 rounded-xl border text-xs font-semibold animate-fade-in ${
+                    keyTestResult.success
+                      ? 'bg-teal-50 border-teal-300 text-teal-900'
+                      : 'bg-rose-50 border-rose-300 text-rose-800'
+                  }`}
+                >
+                  {keyTestResult.message}
+                </div>
+              )}
 
               {apiSaveStatus && (
                 <div className="p-2.5 rounded-lg bg-teal-100 text-teal-800 text-xs font-semibold text-center animate-fade-in">
@@ -1280,7 +1378,8 @@ export default function UnifiedAssistantPage() {
                   if (typeof window !== 'undefined') {
                     localStorage.removeItem('enekoma_gemini_api_key');
                   }
-                  setApiSaveStatus('キーを削除しました（ローカルエンジンに戻ります）');
+                  setApiSaveStatus('キーを削除しました');
+                  setKeyTestResult(null);
                   setTimeout(() => setApiSaveStatus(null), 1500);
                 }}
                 className="text-xs text-rose-600 hover:text-rose-800 hover:underline"
