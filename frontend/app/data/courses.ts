@@ -5700,10 +5700,19 @@ export function findFreeRooms(
     '4号館': freeRooms.filter((r) => r.startsWith('4'))
   };
 
+  const periodTimeMap: Record<number, string> = {
+    1: '09:00〜10:30',
+    2: isLunch ? '12:10〜13:00（昼休み）' : '10:40〜12:10',
+    3: '13:00〜14:30',
+    4: '14:40〜16:10',
+    5: '16:20〜17:50'
+  };
+
   const lines: string[] = [];
-  const curLabel = curriculum === 'reiwa6_or_earlier' ? '（令和6年度以前入学者向け時間割参照）' : '（令和7年度以降入学者向け時間割参照）';
-  lines.push(`🏫 **【リアルタイム空き教室・自習スポット案内】** ${curLabel}`);
-  lines.push(`🕒 **判定日時**: **${curDay}曜 ${curPeriod}限**（${isLunch ? '※現在昼休み中' : '授業実施時間帯'}）`);
+  const curLabel = curriculum === 'reiwa6_or_earlier' ? '（令和6年度以前入学者時間割）' : '（令和7年度以降入学者時間割）';
+  const isSpecified = Boolean(targetDay || targetPeriod);
+  lines.push(`🏫 **【${isSpecified ? `${curDay}曜 ${curPeriod}限の空き教室案内` : '現在の空き教室・自習スポット案内'}】** ${curLabel}`);
+  lines.push(`🕒 **対象日時**: **${curDay}曜日 ${curPeriod}限**（${periodTimeMap[curPeriod] || ''}）`);
   lines.push(``);
 
   if (isLunch) {

@@ -1168,6 +1168,15 @@ export interface CourseRecord {
   year?: number;
 }
 
+export interface EnrolledCourseItem {
+  name: string;
+  day?: string; // '月', '火', '水', '木', '金', '土'
+  period?: number; // 1, 2, 3, 4, 5
+  room?: string;
+  teacher?: string;
+  credits: number;
+}
+
 export interface UserProfileData {
   department: string;
   grade: number; // 1, 2, 3, 4
@@ -1179,6 +1188,7 @@ export interface UserProfileData {
   selectedMinors: string[];  // 複数選択可
   admissionYear?: 'reiwa7_or_later' | 'reiwa6_or_earlier'; // 入学年度・カリキュラム体系
   completedCourses?: CourseRecord[];
+  enrolledCourses?: EnrolledCourseItem[]; // 今期履修中科目
 }
 
 // =========================================================================

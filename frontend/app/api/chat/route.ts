@@ -38,28 +38,50 @@ const SYSTEM_PROMPT = `
    学科ごとの必修科目や選択必修、単位上限ルール、先修条件判定時は、添付要覧の該当ページ（例：『学部要覧』p.31、p.35、p.39等）・該当項目を優先参照し、根拠ページ番号を明記して回答してください。
 4. **言い回しの柔軟な意図解釈（API活用）**
    「図書室あいてる？」「421ってどこ」「単位足りてる？」「目標GPA3.0にするにはどうすればいい？」「この成績表読んで」など、どのような言い回しやファイル添付で入力されても、ユーザーの意図を正しく汲み取って回答してください。
-5. **成績表画像（マルチモーダル / OCR解析）からの自動入力・補完**
-   ユーザーが成績表の画像をアップロードした場合、画像から以下を自動読み取りし、ユーザープロフィールを補完・更新した上で要約を出力してください：
-   * **読み取り項目**：履修済み科目名、修得単位数、各科目の評価（S〜F）、現在GPA、総修得単位数など。
-   * **出力フォーマット**：
-   > **【成績表データの解析完了】**
-   > 画像から以下のデータを読み取り、プロフィールに反映しました：
-   > * **修得済み単位数**：〇〇単位
-   > * **現在のGPA**：〇.〇〇
-   > * **読み取り科目例**：[科目名A (S)], [科目名B (A)] ...
-   > 
-   > これに基づいて、不足講義の分析やGPAシミュレーションを実行できます。
-   * 解析成功時は末尾に以下の更新JSONを埋め込んでください：
-   \`\`\`profile_update
-   {
-     "totalEarnedCredits": 42,
-     "currentGpa": 2.85,
-     "completedCourses": [
-       {"name": "基礎プログラミング", "credits": 2, "grade": "S"},
-       {"name": "線形代数1", "credits": 2, "grade": "A"}
-     ]
-   }
-   \`\`\`
+5. **画像（時間割表・成績通知書）のマルチモーダルOCR解析と自動プロフィール反映**
+   ユーザーが時間割表や成績表の画像をアップロードした場合、画像の種別（今期の時間割表・過去の時間割表・成績通知書）を自動判別し（またはユーザーからの指示に従い）、以下を実行してください：
+   * **【種別A：今期の時間割表】（受講中の時間割を登録する場合）**：
+     - 画像から曜日・時限・科目名・教室・担当教員・単位数をOCR読み取り。
+     - 「今期履修中」として登録し、今期履修単位数合計（各科目原則2単位、実習・演習1単位等）を算出。
+     - 出力末尾に以下の更新JSONを埋め込んでください：
+     \`\`\`profile_update
+     {
+       "action": "enroll_current_timetable",
+       "semesterCredits": 16,
+       "enrolledCourses": [
+         { "name": "科目名A", "day": "月", "period": 2, "room": "3306", "credits": 2 },
+         { "name": "科目名B", "day": "火", "period": 3, "room": "421", "credits": 2 }
+       ]
+     }
+     \`\`\`
+   * **【種別B：過去の時間割表】（前学期・過年度の履修済み科目を追加する場合）**：
+     - 過去の時間割画像から科目名・単位数をOCR読み取り。
+     - 「修得済み科目」に一括追加し、総修得単位数に加算。
+     - 出力末尾に以下の更新JSONを埋め込んでください：
+     \`\`\`profile_update
+     {
+       "action": "add_completed_timetable",
+       "totalEarnedCredits": 56,
+       "addCompletedCourses": [
+         { "name": "自主創造の基礎", "credits": 2, "grade": "A" },
+         { "name": "情報リテラシー", "credits": 2, "grade": "A" }
+       ]
+     }
+     \`\`\`
+   * **【種別C：成績通知書・成績表】（成績やGPAを反映する場合）**：
+     - 履修済み科目名、修得単位数、各科目の評価（S〜F）、現在GPA、総修得単位数を読み取り要約を出力。
+     - 出力末尾に以下の更新JSONを埋め込んでください：
+     \`\`\`profile_update
+     {
+       "action": "transcript",
+       "totalEarnedCredits": 42,
+       "currentGpa": 2.85,
+       "completedCourses": [
+         { "name": "基礎プログラミング", "credits": 2, "grade": "S" },
+         { "name": "線形代数1", "credits": 2, "grade": "A" }
+       ]
+     }
+     \`\`\`
 6. **単位・講義不足判定の優先順位（厳格）**
    不足講義や必要単位数を分析・回答する際は、以下の優先順位に従って判定してください：
    * **優先度 1（最優先）**：所属学科の**必修科目**（および選択必修科目）の未履修チェック
@@ -84,8 +106,8 @@ const SYSTEM_PROMPT = `
    構内ナビの回答では「表示用：[12文字以内ラベル]」と「詳細案内：[詳細メッセージ]」を分けて出力してください。
 10. **入学年度・カリキュラム体系の区別（令和7年度以降 vs 令和6年度以前）**
    ユーザープロフィールの「入学年度（admissionYear）」設定（令和7年度以降／令和6年度以前）に基づき、該当する時間割データベースおよび要覧規則を参照して回答してください。
-11. **リアルタイム空き教室・自習スポット検索**
-   現在の曜日・時刻から開講中の授業を除外し、利用可能な空き教室を提示してください。「3号館でいま空いている教室」「4限の空き教室」などの条件検索にも対応します。また昼休み（12:10〜13:00）は全教室が休憩・自習用に開放されるルール（ゴミの持ち帰り・受講生への席譲りマナー）を案内してください。
+11. **指定日時（曜日・時限・時間帯）および現在の空き教室・自習スポット検索**
+   学生から「月曜2限の空き教室は？」「火曜14時空いてる教室」「金曜4限どこ空いてる？」「3号館の空き教室」などの問い合わせを受けた場合、指定された曜日および時限（または時刻から該当する時限を自動換算：1限 09:00〜10:30, 2限 10:40〜12:10, 昼休み 12:10〜13:00, 3限 13:00〜14:30, 4限 14:40〜16:10, 5限 16:20〜17:50）の時間割データに基づき、授業が開講されていない空き講義室を号館別（3号館、4号館、1号館、2号館）に整理して分かりやすく提示してください。指定がない場合は現在日時の空き教室を提示してください。昼休み（12:10〜13:00）の場合は全教室が開放される利用マナー（飲食ゴミ持ち帰り、次限受講生への席譲り）も案内してください。
 12. **履修登録サポート＆「空きコマ」活用提案**
    学生が挙げた科目同士の時間割重複（バッティング）を即座に検出し警告してください。また「火曜3限が空いているから埋めたい」等の要望に対し、該当コマに開講される総合教育科目・外国語・基礎科目を提案してください。
 13. **必修組み込み済みの自動スケジュール提案**
@@ -372,11 +394,51 @@ function answerLocally(query: string, userProfile?: UserProfileData): string {
     );
   }
 
-  // 5. リアルタイム空き教室・自習スポット検索
-  if (['空き教室', '空いてる教室', '空いている教室', '自習室', '自習スポット', '自習できる', 'いま空い', '今空い', '教室空い'].some((k) => qLower.includes(k))) {
-    const dayMatch = ['月', '火', '水', '木', '金', '土'].find((d) => q.includes(`${d}曜`) || q.includes(d));
-    const periodMatch = [1, 2, 3, 4, 5].find((p) => q.includes(`${p}限`) || q.includes(`${p}コマ`));
-    let buildingMatch = ['1号館', '2号館', '3号館', '4号館'].find((b) => q.includes(b) || q.includes(b[0] + '号館'));
+  // 5. 指定日時・時限・現在の空き教室・自習スポット検索
+  const isRoomFreeQuery =
+    ['空き教室', '空いてる教室', '空いている教室', '自習室', '自習スポット', '自習できる', 'いま空い', '今空い', 'どこ空い', '教室空い', '空き部屋', '空いてる場所', '使える教室'].some((k) => qLower.includes(k)) ||
+    (/(月|火|水|木|金|土)曜?[^。、！？\n]*([1-5]限|[1-5]コマ|\d{1,2}時)/.test(qLower));
+
+  if (isRoomFreeQuery) {
+    let dayMatch: string | undefined = undefined;
+    for (const d of ['月', '火', '水', '木', '金', '土']) {
+      if (q.includes(`${d}曜`) || q.includes(`${d}曜日`)) {
+        dayMatch = d;
+        break;
+      }
+    }
+    if (!dayMatch) {
+      const dm = q.match(/(月|火|水|木|金|土)(?=[の\s\d限])/);
+      if (dm) dayMatch = dm[1];
+    }
+
+    let periodMatch: number | undefined = undefined;
+    const pm = q.match(/([1-5])\s*(?:限|コマ)/);
+    if (pm) {
+      periodMatch = parseInt(pm[1], 10);
+    } else {
+      const tm = q.match(/(\d{1,2})(?:[:：](\d{2}))?\s*(?:時|分|頃|から)?/);
+      if (tm) {
+        const h = parseInt(tm[1], 10);
+        const m = tm[2] ? parseInt(tm[2], 10) : 0;
+        const total = h * 60 + m;
+        if (h >= 8 && h <= 19) {
+          if (total < 10 * 60 + 35) periodMatch = 1;
+          else if (total < 12 * 60 + 10) periodMatch = 2;
+          else if (total < 13 * 60) periodMatch = 2; // lunch
+          else if (total < 14 * 60 + 35) periodMatch = 3;
+          else if (total < 16 * 60 + 15) periodMatch = 4;
+          else periodMatch = 5;
+        }
+      }
+    }
+
+    let buildingMatch: string | undefined = undefined;
+    const bm = q.match(/([1-4])\s*号館/);
+    if (bm) {
+      buildingMatch = `${bm[1]}号館`;
+    }
+
     return findFreeRooms(dayMatch, periodMatch, buildingMatch, userProfile?.admissionYear).formattedReport;
   }
 
@@ -716,9 +778,20 @@ export async function POST(req: NextRequest) {
         });
       }
 
+      const imageType = body.imageType || null;
       let userPromptText = query;
-      if (!userPromptText && image) {
-        userPromptText = '添付された成績表画像をマルチモーダル解析し、『学部要覧』p.38-39の評価基準（S〜F）に従って修得済み科目名・単位数・評価・現在GPA・総修得単位数を読み取り、要約とプロフィール更新ブロックを出力してください。';
+      if (image) {
+        if (imageType === 'current_timetable' || (!userPromptText && (query.includes('時間割') || query.includes('履修中')))) {
+          userPromptText = userPromptText
+            ? `【添付画像：今期の時間割表】\n${userPromptText}`
+            : '添付された【今期の時間割表】画像をマルチモーダルOCR解析し、開講曜日・時限・教室・科目名・単位数・担当教員を読み取ってください。「今期履修中」として登録し、今期履修単位数合計を算出して、要約とプロフィール更新ブロック（action: "enroll_current_timetable"）を出力してください。';
+        } else if (imageType === 'past_timetable' || (!userPromptText && (query.includes('過去') || query.includes('修得済み') || query.includes('前学期')))) {
+          userPromptText = userPromptText
+            ? `【添付画像：過去の時間割表】\n${userPromptText}`
+            : '添付された【過去の時間割表】画像をマルチモーダルOCR解析し、開講されていた科目名・単位数を読み取ってください。「修得済み科目」に追加登録し、総修得単位数に加算して、要約とプロフィール更新ブロック（action: "add_completed_timetable"）を出力してください。';
+        } else if (!userPromptText) {
+          userPromptText = '添付された画像（時間割表または成績表）をマルチモーダルOCR解析し、今期時間割であれば「今期履修中」登録、過去時間割であれば「修得済み科目」追加、成績表であれば修得単位・GPA・評価を読み取って要約とプロフィール更新ブロックを出力してください。';
+        }
       }
 
       const profileContext = userProfile
