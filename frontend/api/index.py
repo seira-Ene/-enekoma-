@@ -1250,10 +1250,6 @@ def call_gemini_api(query: str, history: List[Dict[str, Any]], api_key: str, ima
     for model in candidate_models:
         try:
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
-            contents = []
-            for h in history:
-                role = "user" if h.get("sender") == "user" else "model"
-                contents.append({"role": role, "parts": [{"text": h.get("text", "")}]})
             
             user_parts: List[Dict[str, Any]] = []
             profile_context = ""
@@ -1288,16 +1284,34 @@ def call_gemini_api(query: str, history: List[Dict[str, Any]], api_key: str, ima
             if image and image.get("data"):
                 clean_b64 = re.sub(r"^data:[^;]+;base64,", "", image["data"])
                 user_parts.append({
-                    "inline_data": {
-                        "mime_type": image.get("mimeType", "image/jpeg"),
+                    "inlineData": {
+                        "mimeType": image.get("mimeType", "image/jpeg"),
                         "data": clean_b64
                     }
                 })
                 
-            contents.append({"role": "user", "parts": user_parts})
+            contents: List[Dict[str, Any]] = []
+            last_role = None
+            for h in history:
+                text = (h.get("text") or "").strip()
+                if not text:
+                    continue
+                role = "user" if h.get("sender") == "user" else "model"
+                if not last_role and role == "model":
+                    continue
+                if role == last_role:
+                    contents[-1]["parts"].append({"text": text})
+                else:
+                    contents.append({"role": role, "parts": [{"text": text}]})
+                    last_role = role
+
+            if last_role == "user" and contents:
+                contents[-1]["parts"].extend(user_parts)
+            else:
+                contents.append({"role": "user", "parts": user_parts})
             
             payload = {
-                "system_instruction": {"parts": [{"text": SYSTEM_PROMPT.strip()}]},
+                "systemInstruction": {"parts": [{"text": SYSTEM_PROMPT.strip()}]},
                 "contents": contents,
                 "generationConfig": {"temperature": 0.3, "maxOutputTokens": 2048}
             }

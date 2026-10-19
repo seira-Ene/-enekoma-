@@ -432,15 +432,71 @@ export default function UnifiedAssistantPage() {
 
       setMessages((prev) => [...prev, assistantMessage]);
     } catch (err: any) {
-      const errorMessage: ChatMessage = {
-        id: `assistant_err_${Date.now()}`,
-        sender: 'assistant',
-        text: `通信エラーが発生しました。インターネット接続をご確認ください。（${err?.message || ''}）`,
-        shortLabel: 'エラー',
-        source: 'local',
-        timestamp: new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })
-      };
-      setMessages((prev) => [...prev, errorMessage]);
+      // サーバー通信でエラーが発生した場合、APIキーがあればブラウザから直接Geminiを試行
+      const cleanedKey = apiKey.trim();
+      let recovered = false;
+
+      if (cleanedKey) {
+        try {
+          const directRes = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${cleanedKey}`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                systemInstruction: {
+                  parts: [{ text: 'あなたは日本大学文理学部（CHS）公式アシスタント「EneKoma」です。学部要覧（卒業要件124単位、年間CAP制40単位、学科必修）および校舎施設データに基づき、丁寧かつ正確に回答してください。' }]
+                },
+                contents: [{
+                  role: 'user',
+                  parts: [
+                    { text: `【ユーザープロフィール】学科: ${userProfile.department}、学年: ${userProfile.grade}年、現在GPA: ${userProfile.currentGpa}、修得単位: ${userProfile.currentCredits}単位\n\n質問: ${text}` },
+                    ...(currentImg?.data ? [{
+                      inlineData: {
+                        mimeType: currentImg.mimeType || 'image/jpeg',
+                        data: currentImg.data.replace(/^data:[^;]+;base64,/, '')
+                      }
+                    }] : [])
+                  ]
+                }],
+                generationConfig: { temperature: 0.3, maxOutputTokens: 2048 }
+              })
+            }
+          );
+          if (directRes.ok) {
+            const directData = await directRes.json();
+            const candText = directData?.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (candText) {
+              const { shortLabel, mainText } = parseResponse(candText);
+              const assistantMessage: ChatMessage = {
+                id: `assistant_${Date.now()}`,
+                sender: 'assistant',
+                text: mainText,
+                shortLabel,
+                source: 'gemini',
+                model: 'gemini-1.5-flash',
+                timestamp: new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })
+              };
+              setMessages((prev) => [...prev, assistantMessage]);
+              recovered = true;
+            }
+          }
+        } catch (e) {
+          // fallback to error message below
+        }
+      }
+
+      if (!recovered) {
+        const errorMessage: ChatMessage = {
+          id: `assistant_err_${Date.now()}`,
+          sender: 'assistant',
+          text: `通信エラーが発生しました。（${err?.message || '接続できませんでした'}）\n画面右上の「⚙️ API設定」より接続テストをお試しいただくか、APIキーをご確認ください。`,
+          shortLabel: '通信エラー',
+          source: 'local',
+          timestamp: new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })
+        };
+        setMessages((prev) => [...prev, errorMessage]);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -494,11 +550,13 @@ export default function UnifiedAssistantPage() {
     if (typeof window !== 'undefined') {
       localStorage.setItem('enekoma_gemini_api_key', cleaned);
     }
-    setApiSaveStatus('設定を保存しました。');
+    setApiSaveStatus('設定を保存しました。Gemini連携が有効になりました。');
+    if (cleaned) {
+      handleTestApiKey();
+    }
     setTimeout(() => {
       setApiSaveStatus(null);
-      setShowApiModal(false);
-    }, 1200);
+    }, 3000);
   };
 
   const handleTestApiKey = async () => {
@@ -509,36 +567,83 @@ export default function UnifiedAssistantPage() {
     }
     setIsTestingKey(true);
     setKeyTestResult(null);
+
+    let testSucceeded = false;
+    let replyModel = '1.5 Flash';
+    let errorMessage = '';
+
+    // 1. サーバー側（/api/chat）のテスト
     try {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          query: '日本大学文理学部の魅力を1行で教えてください。',
+          query: '日大文理学部の魅力を1行で教えてください。',
           apiKey: keyToTest,
           userProfile
         })
       });
-      const data = await res.json();
-      if (data?.source === 'gemini') {
-        setKeyTestResult({
-          success: true,
-          message: `接続成功：Gemini API（${data.model || '1.5 Flash'}）が正常に応答しました。自然言語での柔軟な回答および画像読取が利用可能です。`
-        });
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.source === 'gemini') {
+          testSucceeded = true;
+          replyModel = data.model || 'Gemini Flash';
+        } else if (data?.error) {
+          errorMessage = data.error;
+        } else if (data?.reply?.startsWith('⚠️')) {
+          errorMessage = data.reply;
+        }
       } else {
-        setKeyTestResult({
-          success: false,
-          message: data?.reply?.startsWith('⚠️') ? data.reply : 'Geminiへの接続テストに失敗しました。APIキーをご確認ください。'
-        });
+        errorMessage = `HTTP ${res.status}`;
       }
     } catch (e: any) {
+      errorMessage = e?.message || 'サーバー未接続';
+    }
+
+    // 2. サーバー側でエラーだった場合、ブラウザからGoogle APIへ直接テスト
+    if (!testSucceeded && keyToTest) {
+      try {
+        const directRes = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${keyToTest}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{ role: 'user', parts: [{ text: '日大文理' }] }]
+            })
+          }
+        );
+        if (directRes.ok) {
+          testSucceeded = true;
+          replyModel = 'gemini-1.5-flash';
+        } else {
+          const errData = await directRes.json().catch(() => ({}));
+          const googleMsg = errData?.error?.message || `HTTP ${directRes.status}`;
+          if (directRes.status === 400) {
+            errorMessage = `APIキーが無効です（${googleMsg}）。Google AI Studioで作成されたキー（AIzaSy...）をもう一度ご確認ください。`;
+          } else if (directRes.status === 429) {
+            errorMessage = 'Gemini APIの利用制限（レートリミット）に達しています。数分お待ちいただくか別のキーをお試しください。';
+          } else {
+            errorMessage = `Google APIエラー: ${googleMsg}`;
+          }
+        }
+      } catch (e: any) {
+        errorMessage = `通信エラー: Google APIサーバーに接続できませんでした（${e?.message || 'オフライン'}）`;
+      }
+    }
+
+    if (testSucceeded) {
+      setKeyTestResult({
+        success: true,
+        message: `✓ 接続成功：Gemini API（${replyModel}）が正常に応答しました。自然言語対話および時間割・成績表の画像読取が利用可能です。`
+      });
+    } else {
       setKeyTestResult({
         success: false,
-        message: `通信エラー: ${e?.message || '接続できませんでした'}`
+        message: errorMessage || 'Geminiへの接続テストに失敗しました。APIキーをご確認ください。'
       });
-    } finally {
-      setIsTestingKey(false);
     }
+    setIsTestingKey(false);
   };
 
   // 手動で履修中科目を追加

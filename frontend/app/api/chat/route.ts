@@ -769,15 +769,6 @@ export async function POST(req: NextRequest) {
 
     // Google Gemini API呼び出し（APIキー設定時）
     if (apiKey) {
-      const contents: any[] = [];
-
-      for (const h of history) {
-        contents.push({
-          role: h.sender === 'user' ? 'user' : 'model',
-          parts: [{ text: h.text }]
-        });
-      }
-
       const imageType = body.imageType || null;
       let userPromptText = query;
       if (image) {
@@ -814,23 +805,59 @@ export async function POST(req: NextRequest) {
 
       if (image && image.data) {
         const cleanBase64 = image.data.replace(/^data:[^;]+;base64,/, '');
+        // Google Gemini REST API standard is inlineData (camelCase)
         currentTurnParts.push({
-          inline_data: {
-            mime_type: image.mimeType || 'image/jpeg',
+          inlineData: {
+            mimeType: image.mimeType || 'image/jpeg',
             data: cleanBase64
           }
         });
       }
 
-      contents.push({
-        role: 'user',
-        parts: currentTurnParts
-      });
+      // Gemini APIは最初のターンが必ずrole: "user"である必要があり、かつ交互（user ➔ model ➔ user）でなければならない
+      const contents: any[] = [];
+      let lastRole: string | null = null;
+
+      for (const h of history) {
+        const text = (h.text || '').trim();
+        if (!text) continue;
+        const role = h.sender === 'user' ? 'user' : 'model';
+
+        // 先頭のウェルカム文（assistant/model）はスキップして必ずuserから開始する
+        if (!lastRole && role === 'model') {
+          continue;
+        }
+
+        if (role === lastRole) {
+          // 同一roleが連続する場合はpartsにテキストを追加
+          const prevItem = contents[contents.length - 1];
+          if (prevItem && Array.isArray(prevItem.parts)) {
+            prevItem.parts.push({ text });
+          }
+        } else {
+          contents.push({
+            role,
+            parts: [{ text }]
+          });
+          lastRole = role;
+        }
+      }
+
+      // 現在のユーザーターンを追加（直前がuserの場合は統合）
+      if (lastRole === 'user' && contents.length > 0) {
+        contents[contents.length - 1].parts.push(...currentTurnParts);
+      } else {
+        contents.push({
+          role: 'user',
+          parts: currentTurnParts
+        });
+      }
 
       const CANDIDATE_MODELS = [
         'gemini-1.5-flash',
         'gemini-2.0-flash',
         'gemini-1.5-flash-latest',
+        'gemini-1.5-flash-8b',
         'gemini-1.5-pro'
       ];
 
@@ -844,7 +871,7 @@ export async function POST(req: NextRequest) {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              system_instruction: {
+              systemInstruction: {
                 parts: [{ text: SYSTEM_PROMPT.trim() }]
               },
               contents,
@@ -885,8 +912,11 @@ export async function POST(req: NextRequest) {
               lastErrorMessage = `HTTP ${res.status}`;
             }
             console.warn(`Gemini API call to ${model} failed with status:`, res.status, lastErrorMessage);
-            // If it's an API key invalid error, don't keep trying
+            // APIキー自体の不備や認証拒否の場合は別モデルを試行せず即座に抜ける
             if (res.status === 400 && lastErrorMessage?.toLowerCase().includes('api_key')) {
+              break;
+            }
+            if (res.status === 403) {
               break;
             }
           }
@@ -896,11 +926,21 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // APIキーが提供されたがエラーになった場合は、理由を添えてローカルエンジンで即時回答
+      // APIキーが設定されたがGeminiがエラーになった場合のエラーメッセージ整形
+      let friendlyError = lastErrorMessage || '接続エラー';
+      if (lastErrorMessage?.toLowerCase().includes('api_key') || lastErrorStatus === 400) {
+        friendlyError = 'APIキーが無効であるか、形式が正しくありません。Google AI Studio（aistudio.google.com）で取得した有効なキー（AIzaSy...）をご確認ください。';
+      } else if (lastErrorStatus === 429) {
+        friendlyError = 'Gemini APIの無料枠利用上限（レートリミット）に達しました。1〜2分お待ちいただくか、別のキーをお試しください。';
+      } else if (lastErrorStatus === 403) {
+        friendlyError = 'APIアクセス権限がありません。Gemini APIが有効化されているGoogleアカウントのキーかご確認ください。';
+      }
+
       const localReply = answerLocally(query || (image ? '成績表画像' : ''), userProfile);
       return NextResponse.json({
-        reply: `⚠️ 【Gemini API接続エラー: ${lastErrorMessage || '応答なし'}】\nAPIキーの有効性をご確認ください。画面右上の「⚙️ API設定」からキーを再入力・更新できます。\n\n（※公式要覧ナレッジエンジンにより即時回答します）\n\n${localReply}`,
-        source: 'local'
+        reply: `⚠️ 【Gemini API接続エラー: ${friendlyError}】\n画面右上の「⚙️ API設定」からキーをご確認・再入力できます。\n\n（※要覧ナレッジエンジンにより即座に回答します）\n\n${localReply}`,
+        source: 'local',
+        error: friendlyError
       });
     }
 
