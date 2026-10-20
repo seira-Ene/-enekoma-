@@ -43,6 +43,8 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: '学籍番号またはIDを入力してください。' }, { status: 400 });
       }
 
+      const { selectedCourses, selectedMinors, initialProfile } = body;
+
       const newStudent = {
         id: studentId,
         name: (name || `学生(${studentId})`).trim(),
@@ -50,6 +52,9 @@ export async function POST(req: NextRequest) {
         grade: Number(grade) || 1,
         admissionYear: admissionYear || 'reiwa7_or_later',
         password: (password || '1234').trim(),
+        selectedCourses: selectedCourses || [],
+        selectedMinors: selectedMinors || [],
+        initialProfile: initialProfile || null,
         createdAt: new Date().toISOString()
       };
 

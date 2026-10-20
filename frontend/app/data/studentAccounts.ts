@@ -202,6 +202,9 @@ export function registerNewStudent(data: {
   department: string;
   grade?: number;
   admissionYear?: 'reiwa7_or_later' | 'reiwa6_or_earlier';
+  selectedCourses?: string[];
+  selectedMinors?: string[];
+  initialProfile?: Partial<UserProfileData>;
 }): StudentAccount {
   const accounts = loadAllAccounts();
   const studentId = data.id.trim();
@@ -210,6 +213,29 @@ export function registerNewStudent(data: {
   const grade = data.grade || 1;
   const admissionYear = data.admissionYear || 'reiwa7_or_later';
   const password = (data.password || '1234').trim();
+  const selectedCourses = data.selectedCourses || [];
+  const selectedMinors = data.selectedMinors || [];
+
+  const enrolledCourses = data.initialProfile?.enrolledCourses || [];
+  const completedCourses = data.initialProfile?.completedCourses || [];
+  const semCredits = data.initialProfile?.semesterCredits ?? enrolledCourses.reduce((sum, c) => sum + (c.credits || 2), 0);
+  const earnedCredits = data.initialProfile?.currentCredits ?? (completedCourses.length > 0 ? completedCourses.reduce((sum, c) => sum + (c.credits || 2), 0) : (grade === 1 ? 0 : grade === 2 ? 30 : grade === 3 ? 64 : 96));
+  const gpa = data.initialProfile?.currentGpa ?? 2.80;
+
+  const timetableCount = enrolledCourses.length;
+  const completedCount = completedCourses.length;
+
+  let welcomeDetail = '';
+  if (timetableCount > 0 && earnedCredits > 0) {
+    welcomeDetail = `\n\n【登録時に自動反映されたカルテ】\n・**今期履修中**: ${timetableCount}科目（${semCredits}単位）を登録しました。\n・**修得済み**: ${earnedCredits}単位（GPA: ${gpa.toFixed(2)}）を反映しました。`;
+  } else if (timetableCount > 0) {
+    welcomeDetail = `\n\n【登録時に自動反映されたカルテ】\n・**今期履修中**: ${timetableCount}科目（${semCredits}単位）を登録しました。`;
+  } else if (earnedCredits > 0) {
+    welcomeDetail = `\n\n【登録時に自動反映されたカルテ】\n・**修得済み**: ${earnedCredits}単位（GPA: ${gpa.toFixed(2)}）を反映しました。`;
+  }
+
+  const courseNotice = selectedCourses.length > 0 ? `\n・選択コース: ${selectedCourses.join(', ')}` : '';
+  const minorNotice = selectedMinors.length > 0 ? `\n・選択副専攻: ${selectedMinors.join(', ')}` : '';
 
   const newAccount: StudentAccount = {
     id: studentId,
@@ -224,20 +250,20 @@ export function registerNewStudent(data: {
       department,
       grade,
       admissionYear,
-      currentCredits: grade === 1 ? 0 : grade === 2 ? 30 : grade === 3 ? 64 : 96,
-      currentGpa: 2.80,
-      targetGpa: 3.20,
-      semesterCredits: 0,
-      selectedCourses: [],
-      selectedMinors: [],
-      completedCourses: [],
-      enrolledCourses: []
+      currentCredits: earnedCredits,
+      currentGpa: gpa,
+      targetGpa: data.initialProfile?.targetGpa ?? 3.20,
+      semesterCredits: semCredits,
+      selectedCourses,
+      selectedMinors,
+      completedCourses,
+      enrolledCourses
     },
     chatHistory: [
       {
         id: `welcome_${Date.now()}`,
         sender: 'assistant',
-        text: `日本大学文理学部（${department}）の学生ポータル「EneKoma」へようこそ、${name}さん。\n\nあなた専用の履修カルテが作成されました。時間割表や成績表の写真を送信すると「今期履修中」または「修得済み」に自動登録されます。`,
+        text: `日本大学文理学部（${department}）の学生ポータル「EneKoma」へようこそ、${name}さん。\n\nあなた専用の履修カルテが作成されました。${welcomeDetail}${courseNotice}${minorNotice}\n\n空き教室検索や単位・GPAの相談、要覧ルールの確認など何でも聞いてください。`,
         shortLabel: '登録完了',
         source: 'local',
         timestamp: new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })

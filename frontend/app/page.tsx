@@ -169,6 +169,12 @@ export default function UnifiedAssistantPage() {
   const [regDept, setRegDept] = useState('情報科学科');
   const [regGrade, setRegGrade] = useState<number>(1);
   const [regAdmissionYear, setRegAdmissionYear] = useState<'reiwa7_or_later' | 'reiwa6_or_earlier'>('reiwa7_or_later');
+  const [regCourses, setRegCourses] = useState<string[]>([]);
+  const [regMinors, setRegMinors] = useState<string[]>([]);
+  const [regTimetableFile, setRegTimetableFile] = useState<{ name: string; size: number; mimeType: string; data: string } | null>(null);
+  const [regTranscriptFile, setRegTranscriptFile] = useState<{ name: string; size: number; mimeType: string; data: string } | null>(null);
+  const [isRegistering, setIsRegistering] = useState(false);
+  const [regStatusText, setRegStatusText] = useState<string | null>(null);
 
   // 空き教室検索ツール（人間が使うための直感的なUI）
   const [showRoomSearchTool, setShowRoomSearchTool] = useState(false);
@@ -515,8 +521,43 @@ export default function UnifiedAssistantPage() {
     setLoginPassword('');
   };
 
-  // 新規登録フォーム送信
-  const handleStudentRegister = (e: React.FormEvent) => {
+  // 新規登録時の添付ファイル選択
+  const handleRegFileSelect = (e: React.ChangeEvent<HTMLInputElement>, target: 'timetable' | 'transcript') => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    let mimeType = file.type || 'application/octet-stream';
+    const lower = file.name.toLowerCase();
+    if (file.type.startsWith('image/') || /\.(png|jpe?g|webp|gif|bmp)$/i.test(lower)) {
+      mimeType = file.type || 'image/jpeg';
+    } else if (file.type === 'application/pdf' || lower.endsWith('.pdf')) {
+      mimeType = 'application/pdf';
+    } else if (file.type.includes('csv') || lower.endsWith('.csv')) {
+      mimeType = 'text/csv';
+    } else if (file.type.includes('text') || lower.endsWith('.txt')) {
+      mimeType = 'text/plain';
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const item = {
+        name: file.name,
+        size: file.size,
+        mimeType,
+        data: reader.result as string
+      };
+      if (target === 'timetable') {
+        setRegTimetableFile(item);
+      } else {
+        setRegTranscriptFile(item);
+      }
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  // 新規登録フォーム送信（時間割・成績表の自動解析付き）
+  const handleStudentRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthError(null);
     if (!regId.trim()) {
@@ -528,18 +569,112 @@ export default function UnifiedAssistantPage() {
       return;
     }
 
-    const newAcc = registerNewStudent({
-      id: regId.trim(),
-      name: regName.trim(),
-      password: regPassword.trim() || '1234',
-      department: regDept,
-      grade: regGrade,
-      admissionYear: regAdmissionYear
-    });
+    setIsRegistering(true);
+    let initialProfile: any = {};
 
-    handleSwitchToStudent(newAcc);
-    setRegId('');
-    setRegName('');
+    try {
+      // 1. 今期の時間割ファイルが添付されている場合、AIに解析させて登録科目を抽出
+      if (regTimetableFile) {
+        setRegStatusText('時間割ファイルをAI解析中（科目を抽出しています）...');
+        try {
+          const res = await fetch('/api/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              query: '【新規学生登録】添付された今期の時間割表から開講科目（曜日・時限・科目名・教室・教員・単位数）をすべて読み取り、enrolledCourses配列のJSONを出力してください。',
+              apiKey: apiKey.trim(),
+              image: { mimeType: regTimetableFile.mimeType, data: regTimetableFile.data },
+              imageType: 'current_timetable',
+              userProfile: { department: regDept, grade: regGrade, admissionYear: regAdmissionYear }
+            })
+          });
+          if (res.ok) {
+            const data = await res.json();
+            const update = data.profileUpdate || parseProfileUpdateFromText(data.reply, true);
+            if (update && Array.isArray(update.enrolledCourses) && update.enrolledCourses.length > 0) {
+              const validated = update.enrolledCourses.map((c: any) => ({
+                name: String(c.name || '未定科目').trim(),
+                day: (['月', '火', '水', '木', '金', '土'].includes(c.day) ? c.day : '月') as any,
+                period: Number(c.period) >= 1 && Number(c.period) <= 5 ? Number(c.period) : 1,
+                room: String(c.room || '').trim(),
+                credits: Number(c.credits) || 2,
+                teacher: c.teacher ? String(c.teacher).trim() : undefined
+              }));
+              initialProfile.enrolledCourses = validated;
+              initialProfile.semesterCredits = Number(update.semesterCredits) || validated.reduce((sum: number, c: any) => sum + (c.credits || 2), 0);
+            }
+          }
+        } catch (e) {
+          console.warn('Timetable parse error during register:', e);
+        }
+      }
+
+      // 2. 成績通知書ファイルが添付されている場合、AIに解析させて単位・GPA・科目を抽出
+      if (regTranscriptFile) {
+        setRegStatusText('成績通知書ファイルをAI解析中（修得単位とGPAを抽出しています）...');
+        try {
+          const res = await fetch('/api/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              query: '【新規学生登録】添付された成績通知書から修得単位数合計、現在GPA、修得済み科目一覧を読み取り、JSONを出力してください。',
+              apiKey: apiKey.trim(),
+              image: { mimeType: regTranscriptFile.mimeType, data: regTranscriptFile.data },
+              imageType: 'transcript',
+              userProfile: { department: regDept, grade: regGrade, admissionYear: regAdmissionYear }
+            })
+          });
+          if (res.ok) {
+            const data = await res.json();
+            const update = data.profileUpdate || parseProfileUpdateFromText(data.reply, true);
+            if (update) {
+              if (update.totalEarnedCredits !== undefined) {
+                initialProfile.currentCredits = Number(update.totalEarnedCredits);
+              }
+              if (update.currentGpa !== undefined) {
+                initialProfile.currentGpa = Number(update.currentGpa);
+              }
+              if (Array.isArray(update.completedCourses) && update.completedCourses.length > 0) {
+                initialProfile.completedCourses = update.completedCourses.map((c: any) => ({
+                  name: String(c.name || '').trim(),
+                  credits: Number(c.credits) || 2,
+                  grade: c.grade || 'A',
+                  year: Number(c.year) || 1
+                }));
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('Transcript parse error during register:', e);
+        }
+      }
+
+      setRegStatusText('学生カルテを作成中...');
+      const newAcc = registerNewStudent({
+        id: regId.trim(),
+        name: regName.trim(),
+        password: regPassword.trim() || '1234',
+        department: regDept,
+        grade: regGrade,
+        admissionYear: regAdmissionYear,
+        selectedCourses: regCourses,
+        selectedMinors: regMinors,
+        initialProfile
+      });
+
+      handleSwitchToStudent(newAcc);
+      setRegId('');
+      setRegName('');
+      setRegCourses([]);
+      setRegMinors([]);
+      setRegTimetableFile(null);
+      setRegTranscriptFile(null);
+    } catch (err: any) {
+      setAuthError(`登録中にエラーが発生しました: ${err?.message || '不明なエラー'}`);
+    } finally {
+      setIsRegistering(false);
+      setRegStatusText(null);
+    }
   };
 
   // ログアウト
@@ -2265,7 +2400,7 @@ export default function UnifiedAssistantPage() {
       ======================================================== */}
       {showAuthModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-2xs">
-          <div className="bg-white rounded-xl shadow-lg max-w-lg w-full max-h-[90vh] flex flex-col border border-slate-200">
+          <div className="bg-white rounded-xl shadow-lg max-w-xl w-full max-h-[90vh] flex flex-col border border-slate-200">
             {/* モーダルヘッダー */}
             <div className="flex items-center justify-between p-4 border-b border-slate-200 bg-slate-50 rounded-t-xl">
               <div>
@@ -2413,33 +2548,39 @@ export default function UnifiedAssistantPage() {
 
               {/* TAB 2: 新規学生登録 */}
               {authTab === 'register' && (
-                <form onSubmit={handleStudentRegister} className="space-y-3">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      学籍番号 または ユーザーID <span className="text-rose-500">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      value={regId}
-                      onChange={(e) => setRegId(e.target.value)}
-                      placeholder="例: 5425123"
-                      className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-slate-800"
-                      required
-                    />
+                <form onSubmit={handleStudentRegister} className="space-y-4">
+                  {/* 基本情報 */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        学籍番号 または ユーザーID <span className="text-rose-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={regId}
+                        onChange={(e) => setRegId(e.target.value)}
+                        placeholder="例: 5425123"
+                        className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-slate-800"
+                        required
+                        disabled={isRegistering}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        氏名 / ニックネーム <span className="text-rose-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={regName}
+                        onChange={(e) => setRegName(e.target.value)}
+                        placeholder="例: 日大 太郎"
+                        className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-slate-800"
+                        required
+                        disabled={isRegistering}
+                      />
+                    </div>
                   </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      氏名 / ニックネーム <span className="text-rose-500">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      value={regName}
-                      onChange={(e) => setRegName(e.target.value)}
-                      placeholder="例: 日大 太郎"
-                      className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-slate-800"
-                      required
-                    />
-                  </div>
+
                   <div className="grid grid-cols-2 gap-2">
                     <div>
                       <label className="block text-xs font-semibold text-slate-700 mb-1">
@@ -2449,6 +2590,7 @@ export default function UnifiedAssistantPage() {
                         value={regDept}
                         onChange={(e) => setRegDept(e.target.value)}
                         className="w-full px-2.5 py-2 border border-slate-300 rounded-md text-xs bg-white"
+                        disabled={isRegistering}
                       >
                         {CHS_DEPARTMENTS.map((d) => (
                           <option key={d} value={d}>{d}</option>
@@ -2463,6 +2605,7 @@ export default function UnifiedAssistantPage() {
                         value={regGrade}
                         onChange={(e) => setRegGrade(Number(e.target.value))}
                         className="w-full px-2.5 py-2 border border-slate-300 rounded-md text-xs bg-white"
+                        disabled={isRegistering}
                       >
                         <option value={1}>1年</option>
                         <option value={2}>2年</option>
@@ -2471,37 +2614,290 @@ export default function UnifiedAssistantPage() {
                       </select>
                     </div>
                   </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      カリキュラム体系
-                    </label>
-                    <select
-                      value={regAdmissionYear}
-                      onChange={(e) => setRegAdmissionYear(e.target.value as any)}
-                      className="w-full px-2.5 py-2 border border-slate-300 rounded-md text-xs bg-white"
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        カリキュラム体系
+                      </label>
+                      <select
+                        value={regAdmissionYear}
+                        onChange={(e) => setRegAdmissionYear(e.target.value as any)}
+                        className="w-full px-2.5 py-2 border border-slate-300 rounded-md text-xs bg-white"
+                        disabled={isRegistering}
+                      >
+                        <option value="reiwa7_or_later">令和7年度以降（新カリキュラム）</option>
+                        <option value="reiwa6_or_earlier">令和6年度以前（旧カリキュラム）</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        パスワード（任意・初期値 1234）
+                      </label>
+                      <input
+                        type="password"
+                        value={regPassword}
+                        onChange={(e) => setRegPassword(e.target.value)}
+                        placeholder="1234"
+                        className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs"
+                        disabled={isRegistering}
+                      />
+                    </div>
+                  </div>
+
+                  {/* 1. コース（複数選択可） */}
+                  <div className="pt-2 border-t border-slate-200">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="block text-xs font-semibold text-slate-800">
+                        🎯 取得希望コース・資格課程（複数選択可）
+                      </label>
+                      <span className="text-[11px] text-slate-500">任意</span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 mb-2">
+                      教職・学芸員・司書等のコースを選択すると、カルテ上で進捗や自由選択単位を自動算定します。
+                    </p>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+                      {GAKUBU_YORAN_COURSES.map((c) => {
+                        const isSelected = regCourses.includes(c.name);
+                        return (
+                          <button
+                            key={c.name}
+                            type="button"
+                            onClick={() => {
+                              setRegCourses((prev) =>
+                                isSelected ? prev.filter((x) => x !== c.name) : [...prev, c.name]
+                              );
+                            }}
+                            className={`px-2.5 py-2 rounded-lg text-xs font-medium text-left border transition flex items-center justify-between ${
+                              isSelected
+                                ? 'bg-slate-900 border-slate-900 text-white shadow-2xs'
+                                : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100 hover:border-slate-300'
+                            }`}
+                          >
+                            <span className="truncate">{c.name.replace('コース', '')}</span>
+                            <span className="text-[11px] ml-1">{isSelected ? '✓' : '+'}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* 2. 副専攻（複数選択可） */}
+                  <div className="pt-2 border-t border-slate-200">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="block text-xs font-semibold text-slate-800">
+                        🏅 修了を目指す副専攻（複数選択可）
+                      </label>
+                      <span className="text-[11px] text-slate-500">任意</span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 mb-2">
+                      学際副専攻（SDGs・データサイエンス等）や他学科の副専攻を選択できます（16単位で修了）。
+                    </p>
+
+                    {/* 学際副専攻 クイックトグル */}
+                    <div className="flex flex-wrap gap-1.5 mb-2">
+                      {['SDGs副専攻', 'グローバル副専攻', 'データサイエンス副専攻', 'STEAM副専攻', '日本語教育副専攻'].map((mName) => {
+                        const isSelected = regMinors.includes(mName);
+                        return (
+                          <button
+                            key={mName}
+                            type="button"
+                            onClick={() => {
+                              setRegMinors((prev) =>
+                                isSelected ? prev.filter((x) => x !== mName) : [...prev, mName]
+                              );
+                            }}
+                            className={`px-2.5 py-1.5 rounded-full text-xs font-medium border transition ${
+                              isSelected
+                                ? 'bg-emerald-800 border-emerald-800 text-white shadow-2xs'
+                                : 'bg-emerald-50 border-emerald-200 text-emerald-800 hover:bg-emerald-100'
+                            }`}
+                          >
+                            {isSelected ? `✓ ${mName}` : `+ ${mName}`}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {/* その他の学科副専攻 ドロップダウン選択 */}
+                    <div className="flex items-center space-x-2">
+                      <select
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          if (val && !regMinors.includes(val)) {
+                            setRegMinors((prev) => [...prev, val]);
+                          }
+                          e.target.value = '';
+                        }}
+                        defaultValue=""
+                        className="flex-1 px-2.5 py-1.5 border border-slate-300 rounded-md text-xs bg-white text-slate-700"
+                      >
+                        <option value="" disabled>＋ 学科副専攻を一覧から追加...</option>
+                        {GAKUBU_YORAN_ALL_24_MINORS.filter(
+                          (m) => !['SDGs副専攻', 'グローバル副専攻', 'データサイエンス副専攻', 'STEAM副専攻', '日本語教育副専攻'].includes(m.name)
+                        ).map((m) => (
+                          <option key={m.name} value={m.name} disabled={regMinors.includes(m.name)}>
+                            {m.name} {regMinors.includes(m.name) ? '（追加済み）' : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* 選択中の副専攻バッジ一覧 */}
+                    {regMinors.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 mt-2 p-2 bg-slate-50 border border-slate-200 rounded-md">
+                        <span className="text-[11px] text-slate-500 font-medium self-center mr-1">選択中:</span>
+                        {regMinors.map((m) => (
+                          <span
+                            key={m}
+                            className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-white border border-slate-300 text-slate-800 font-medium"
+                          >
+                            <span>{m}</span>
+                            <button
+                              type="button"
+                              onClick={() => setRegMinors((prev) => prev.filter((x) => x !== m))}
+                              className="ml-1.5 text-slate-400 hover:text-rose-600 font-bold"
+                            >
+                              ✕
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 3. 任意：時間割・成績表の添付（AIが履修プロフィールを自動作成） */}
+                  <div className="pt-2 border-t border-slate-200">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="block text-xs font-semibold text-slate-800">
+                        📎 任意添付：時間割 ＆ 成績通知書（AI自動解析）
+                      </label>
+                      <span className="text-[11px] text-amber-600 font-medium bg-amber-50 px-2 py-0.5 rounded">
+                        ファイル添付でカルテ即時作成
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 mb-2.5">
+                      今の時間割や成績通知書（画像・PDF・CSV等）を添付すると、AIが「履修中科目」や「修得単位・GPA」を読み込んで学生カルテを自動構築します（空欄でも登録可能）。
+                    </p>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      {/* 今期の時間割 */}
+                      <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                        <div className="text-xs font-semibold text-slate-800 mb-1 flex items-center space-x-1">
+                          <span>📅</span>
+                          <span>今期の時間割表（任意）</span>
+                        </div>
+                        <p className="text-[10px] text-slate-500 mb-2">
+                          履修中科目・曜日・時限・教室・今期単位を自動反映
+                        </p>
+                        {regTimetableFile ? (
+                          <div className="p-2 bg-white border border-slate-300 rounded text-xs flex items-center justify-between">
+                            <div className="truncate mr-2">
+                              <div className="font-semibold text-slate-800 truncate text-[11px]">
+                                {regTimetableFile.name}
+                              </div>
+                              <div className="text-[10px] text-slate-400">
+                                {(regTimetableFile.size / 1024).toFixed(1)} KB
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setRegTimetableFile(null)}
+                              className="text-[11px] text-rose-600 hover:text-rose-800 font-medium whitespace-nowrap px-1.5 py-0.5"
+                            >
+                              ✕ 解除
+                            </button>
+                          </div>
+                        ) : (
+                          <label className="flex items-center justify-center space-x-1.5 p-2 bg-white border border-dashed border-slate-300 rounded text-xs text-slate-600 hover:border-slate-500 hover:text-slate-900 cursor-pointer transition">
+                            <span>📎</span>
+                            <span className="font-medium">時間割ファイルを選択</span>
+                            <input
+                              type="file"
+                              accept="*/*"
+                              onChange={(e) => handleRegFileSelect(e, 'timetable')}
+                              className="hidden"
+                              disabled={isRegistering}
+                            />
+                          </label>
+                        )}
+                      </div>
+
+                      {/* 成績通知書 */}
+                      <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                        <div className="text-xs font-semibold text-slate-800 mb-1 flex items-center space-x-1">
+                          <span>📊</span>
+                          <span>成績通知書（任意）</span>
+                        </div>
+                        <p className="text-[10px] text-slate-500 mb-2">
+                          修得済み単位・現在GPA・過去の修得科目を自動反映
+                        </p>
+                        {regTranscriptFile ? (
+                          <div className="p-2 bg-white border border-slate-300 rounded text-xs flex items-center justify-between">
+                            <div className="truncate mr-2">
+                              <div className="font-semibold text-slate-800 truncate text-[11px]">
+                                {regTranscriptFile.name}
+                              </div>
+                              <div className="text-[10px] text-slate-400">
+                                {(regTranscriptFile.size / 1024).toFixed(1)} KB
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setRegTranscriptFile(null)}
+                              className="text-[11px] text-rose-600 hover:text-rose-800 font-medium whitespace-nowrap px-1.5 py-0.5"
+                            >
+                              ✕ 解除
+                            </button>
+                          </div>
+                        ) : (
+                          <label className="flex items-center justify-center space-x-1.5 p-2 bg-white border border-dashed border-slate-300 rounded text-xs text-slate-600 hover:border-slate-500 hover:text-slate-900 cursor-pointer transition">
+                            <span>📎</span>
+                            <span className="font-medium">成績通知書を選択</span>
+                            <input
+                              type="file"
+                              accept="*/*"
+                              onChange={(e) => handleRegFileSelect(e, 'transcript')}
+                              className="hidden"
+                              disabled={isRegistering}
+                            />
+                          </label>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 登録ボタン & AI解析インジケーター */}
+                  <div className="pt-2">
+                    {isRegistering && regStatusText && (
+                      <div className="mb-2 p-2.5 bg-blue-50 border border-blue-200 text-blue-800 text-xs rounded-md flex items-center space-x-2">
+                        <svg className="animate-spin h-4 w-4 text-blue-600 flex-shrink-0" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                        </svg>
+                        <span className="font-medium">{regStatusText}</span>
+                      </div>
+                    )}
+                    <button
+                      type="submit"
+                      disabled={isRegistering}
+                      className={`w-full py-2.5 rounded-lg text-xs font-semibold transition flex items-center justify-center space-x-2 ${
+                        isRegistering
+                          ? 'bg-slate-400 text-white cursor-not-allowed'
+                          : 'bg-slate-900 text-white hover:bg-slate-800 shadow-sm'
+                      }`}
                     >
-                      <option value="reiwa7_or_later">令和7年度以降入学者（新カリキュラム）</option>
-                      <option value="reiwa6_or_earlier">令和6年度以前入学者（旧カリキュラム）</option>
-                    </select>
+                      {isRegistering ? (
+                        <>
+                          <span>AIがファイルを解析中...</span>
+                        </>
+                      ) : (
+                        <>
+                          <span>✨ アカウントを作成して開始</span>
+                        </>
+                      )}
+                    </button>
                   </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      パスワード（任意・初期値 1234）
-                    </label>
-                    <input
-                      type="password"
-                      value={regPassword}
-                      onChange={(e) => setRegPassword(e.target.value)}
-                      placeholder="1234"
-                      className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs"
-                    />
-                  </div>
-                  <button
-                    type="submit"
-                    className="w-full py-2 bg-slate-900 text-white rounded-md text-xs font-medium hover:bg-slate-800 transition"
-                  >
-                    アカウントを作成して開始
-                  </button>
                 </form>
               )}
 
