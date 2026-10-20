@@ -1163,7 +1163,7 @@ export const GAKUBU_YORAN_ALL_24_MINORS: MinorProgramInfo[] = [
 export interface CourseRecord {
   name: string;
   credits: number;
-  grade: 'S' | 'A' | 'B' | 'C' | 'D' | 'E' | 'P' | 'N';
+  grade?: 'S' | 'A' | 'B' | 'C' | 'D' | 'E' | 'P' | 'N' | '修得' | '履修済' | '-' | string;
   category?: string;
   year?: number;
 }
@@ -1224,7 +1224,7 @@ export function analyzeAcademicDeficiency(profile: UserProfileData): DeficiencyR
 
   const completedNames = new Set(
     (profile.completedCourses || [])
-      .filter((c) => ['S', 'A', 'B', 'C', 'N'].includes(c.grade))
+      .filter((c) => !['D', 'E', 'F', '不合格'].includes(c.grade || ''))
       .map((c) => c.name.trim())
   );
 

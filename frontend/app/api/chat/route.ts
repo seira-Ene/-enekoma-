@@ -19,6 +19,7 @@ import {
   getLectureDatabase,
   getCompactRoomLabel
 } from '@/app/data/courses';
+import { parseProfileUpdateFromText } from '@/app/data/studentAccounts';
 
 const SYSTEM_PROMPT = `
 # 公式ナレッジベース：日本大学文理学部『学部要覧（令和7年度/2025年度）』完全準拠
@@ -55,16 +56,16 @@ const SYSTEM_PROMPT = `
      }
      \`\`\`
    * **【種別B：過去の時間割表】（前学期・過年度の履修済み科目を追加する場合）**：
-     - 過去の時間割画像から科目名・単位数をOCR読み取り。
-     - 「修得済み科目」に一括追加し、総修得単位数に加算。
+     - 過去の時間割画像またはファイル（PDF/CSV/文書等）から科目名・単位数を読み取り。
+     - ※時間割表には成績評価（S/A/B/C等）は記載されていないため、勝手に成績を推測・捏造せず、評価は「修得」または「-」として「修得済み科目」に登録してください（GPAを不当に歪めないため）。
      - 出力末尾に以下の更新JSONを埋め込んでください：
      \`\`\`profile_update
      {
        "action": "add_completed_timetable",
        "totalEarnedCredits": 56,
        "addCompletedCourses": [
-         { "name": "自主創造の基礎", "credits": 2, "grade": "A" },
-         { "name": "情報リテラシー", "credits": 2, "grade": "A" }
+         { "name": "自主創造の基礎", "credits": 2, "grade": "修得" },
+         { "name": "情報リテラシー", "credits": 2, "grade": "修得" }
        ]
      }
      \`\`\`
@@ -772,17 +773,56 @@ export async function POST(req: NextRequest) {
       const imageType = body.imageType || null;
       let userPromptText = query;
       if (image) {
-        if (imageType === 'current_timetable' || (!userPromptText && (query.includes('時間割') || query.includes('履修中')))) {
-          userPromptText = userPromptText
-            ? `【添付画像：今期の時間割表】\n${userPromptText}`
-            : '添付された【今期の時間割表】画像をマルチモーダルOCR解析し、開講曜日・時限・教室・科目名・単位数・担当教員を読み取ってください。「今期履修中」として登録し、今期履修単位数合計を算出して、要約とプロフィール更新ブロック（action: "enroll_current_timetable"）を出力してください。';
-        } else if (imageType === 'past_timetable' || (!userPromptText && (query.includes('過去') || query.includes('修得済み') || query.includes('前学期')))) {
-          userPromptText = userPromptText
-            ? `【添付画像：過去の時間割表】\n${userPromptText}`
-            : '添付された【過去の時間割表】画像をマルチモーダルOCR解析し、開講されていた科目名・単位数を読み取ってください。「修得済み科目」に追加登録し、総修得単位数に加算して、要約とプロフィール更新ブロック（action: "add_completed_timetable"）を出力してください。';
-        } else if (!userPromptText) {
-          userPromptText = '添付された画像（時間割表または成績表）をマルチモーダルOCR解析し、今期時間割であれば「今期履修中」登録、過去時間割であれば「修得済み科目」追加、成績表であれば修得単位・GPA・評価を読み取って要約とプロフィール更新ブロックを出力してください。';
+        const isPast = imageType === 'past_timetable' || query.includes('過去') || query.includes('修得済み') || query.includes('前学期');
+        const isTranscript = imageType === 'transcript' || query.includes('成績') || query.includes('通知書') || query.includes('GPA') || query.includes('評価');
+
+        let imageInstruction = '';
+        if (isPast) {
+          imageInstruction = `【最重要：過去の時間割表OCR・ファイル解析】
+添付された過去の時間割表（画像またはPDF/ファイル）から、履修した科目名と単位数をすべて抽出してください。
+※重要ルール：時間割表には成績評価（S〜C等）は記載されていないため、勝手に成績を推測・捏造せず、評価は「修得」（または「-」）として登録してください。
+回答本文で読み取った科目一覧（科目名・単位数）を分かりやすく案内した上で、必ず回答末尾に以下のJSONブロックを出力してください：
+\`\`\`profile_update
+{
+  "action": "add_completed_timetable",
+  "totalEarnedCredits": <加算後の総修得単位数(数値)>,
+  "addCompletedCourses": [
+    { "name": "<科目名>", "credits": <単位数>, "grade": "修得", "year": 1 }
+  ]
+}
+\`\`\``;
+        } else if (isTranscript) {
+          imageInstruction = `【最重要：成績通知書OCR解析】
+添付された成績通知書画像をOCR解析し、履修済み科目、評価、GPA、総修得単位数を読み取ってください。
+回答本文で結果を要約した上で、必ず回答末尾に以下のJSONブロックを出力してください：
+\`\`\`profile_update
+{
+  "action": "transcript",
+  "totalEarnedCredits": <総修得単位数(数値)>,
+  "currentGpa": <現在GPA(数値)>,
+  "completedCourses": [
+    { "name": "<科目名>", "credits": <単位数>, "grade": "<S/A/B/C/D>" }
+  ]
+}
+\`\`\``;
+        } else {
+          // デフォルト：今期の時間割表（履修中科目）
+          imageInstruction = `【最重要：今期の時間割表OCR解析・履修中科目登録】
+添付された【今期の時間割表】画像をマルチモーダルOCR解析し、画像内に記載されている全ての開講科目（曜日・時限・教室・科目名・担当教員名・単位数）を漏れなく読み取ってください。
+回答本文で「月曜2限：3306 基礎プログラミング（2単位・山田先生）」のように曜日時限順に整理して分かりやすく案内した上で、**必ず回答の末尾に以下のJSONコードブロックを完全な形式で出力してください（厳守）**：
+\`\`\`profile_update
+{
+  "action": "enroll_current_timetable",
+  "semesterCredits": <今期の登録単位数合計(全科目の単位数の合算数値)>,
+  "enrolledCourses": [
+    { "name": "<正確な科目名>", "day": "<月/火/水/木/金/土>", "period": <1-5の時限数値>, "room": "<教室番号>", "teacher": "<教員名>", "credits": <単位数(講義2, 実習演習1)> }
+  ]
+}
+\`\`\`
+※学生が履修登録した全コマを1つ残らず enrolledCourses 配列に含めてください。`;
         }
+
+        userPromptText = query ? `学生のメッセージ: ${query}\n\n${imageInstruction}` : imageInstruction;
       }
 
       const profileContext = userProfile
@@ -888,15 +928,7 @@ export async function POST(req: NextRequest) {
             const data = await res.json();
             const candidateText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
             if (candidateText) {
-              let profileUpdate = null;
-              const updateMatch = candidateText.match(/```profile_update\s*([\s\S]*?)\s*```/);
-              if (updateMatch) {
-                try {
-                  profileUpdate = JSON.parse(updateMatch[1]);
-                } catch (e) {
-                  // ignore
-                }
-              }
+              const profileUpdate = parseProfileUpdateFromText(candidateText, !!image);
 
               return NextResponse.json({
                 reply: candidateText,

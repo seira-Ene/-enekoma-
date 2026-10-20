@@ -17,6 +17,17 @@ import {
   findFreeRooms,
   getCompactRoomLabel
 } from '@/app/data/courses';
+import {
+  StudentAccount,
+  INITIAL_DEMO_ACCOUNTS,
+  loadAllAccounts,
+  saveStudentAccount,
+  getCurrentStudent,
+  setCurrentStudentId,
+  authenticateStudent,
+  registerNewStudent,
+  parseProfileUpdateFromText
+} from '@/app/data/studentAccounts';
 
 // メッセージ型定義
 interface ChatMessage {
@@ -124,11 +135,14 @@ export default function UnifiedAssistantPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  // 添付画像
-  const [attachedImage, setAttachedImage] = useState<{
+  // 添付ファイル（画像・PDF・CSV・文書などすべてのファイル形式に対応）
+  const [attachedFile, setAttachedFile] = useState<{
+    name: string;
+    size: number;
     mimeType: string;
     data: string; // base64
-    previewUrl: string;
+    previewUrl?: string;
+    fileType: 'image' | 'pdf' | 'csv' | 'document';
     imageType: 'current_timetable' | 'past_timetable' | 'transcript' | 'auto';
   } | null>(null);
 
@@ -137,6 +151,24 @@ export default function UnifiedAssistantPage() {
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [profileTab, setProfileTab] = useState<'timetable' | 'completed' | 'reqCourses' | 'basic' | 'courses' | 'minors'>('timetable');
   const [profileNotification, setProfileNotification] = useState<string | null>(null);
+
+  // 学生アカウント管理ステート（個別アカウント対応）
+  const [currentStudent, setCurrentStudent] = useState<StudentAccount | null>(null);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [authTab, setAuthTab] = useState<'login' | 'register' | 'switch' | 'info'>('login');
+  const [authError, setAuthError] = useState<string | null>(null);
+
+  // ログインフォーム入力
+  const [loginId, setLoginId] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+
+  // 新規登録フォーム入力
+  const [regId, setRegId] = useState('');
+  const [regName, setRegName] = useState('');
+  const [regPassword, setRegPassword] = useState('1234');
+  const [regDept, setRegDept] = useState('情報科学科');
+  const [regGrade, setRegGrade] = useState<number>(1);
+  const [regAdmissionYear, setRegAdmissionYear] = useState<'reiwa7_or_later' | 'reiwa6_or_earlier'>('reiwa7_or_later');
 
   // 空き教室検索ツール（人間が使うための直感的なUI）
   const [showRoomSearchTool, setShowRoomSearchTool] = useState(false);
@@ -171,7 +203,7 @@ export default function UnifiedAssistantPage() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // 初期化：localStorageと環境キーの取得
+  // 初期化：localStorageと環境キー・学生アカウントの取得
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const savedKey = localStorage.getItem('enekoma_gemini_api_key') || process.env.NEXT_PUBLIC_GEMINI_API_KEY || '';
@@ -186,18 +218,35 @@ export default function UnifiedAssistantPage() {
         })
         .catch(() => {});
 
-      const savedProfile = localStorage.getItem('enekoma_user_profile');
-      if (savedProfile) {
-        try {
-          const parsed = JSON.parse(savedProfile);
-          setUserProfile({
-            ...DEFAULT_PROFILE,
-            ...parsed,
-            enrolledCourses: parsed.enrolledCourses || DEFAULT_PROFILE.enrolledCourses,
-            completedCourses: parsed.completedCourses || DEFAULT_PROFILE.completedCourses
-          });
-        } catch {
-          // ignore
+      // 1. ログイン中の学生アカウントの読み込み（優先）
+      const loggedStudent = getCurrentStudent();
+      if (loggedStudent) {
+        setCurrentStudent(loggedStudent);
+        setUserProfile({
+          ...DEFAULT_PROFILE,
+          ...loggedStudent.profile,
+          enrolledCourses: loggedStudent.profile.enrolledCourses || [],
+          completedCourses: loggedStudent.profile.completedCourses || []
+        });
+        if (loggedStudent.chatHistory && loggedStudent.chatHistory.length > 0) {
+          setMessages(loggedStudent.chatHistory);
+          return;
+        }
+      } else {
+        // 2. ゲストモード：localStorageから復元
+        const savedProfile = localStorage.getItem('enekoma_user_profile');
+        if (savedProfile) {
+          try {
+            const parsed = JSON.parse(savedProfile);
+            setUserProfile({
+              ...DEFAULT_PROFILE,
+              ...parsed,
+              enrolledCourses: parsed.enrolledCourses || DEFAULT_PROFILE.enrolledCourses,
+              completedCourses: parsed.completedCourses || DEFAULT_PROFILE.completedCourses
+            });
+          } catch {
+            // ignore
+          }
         }
       }
 
@@ -214,12 +263,12 @@ export default function UnifiedAssistantPage() {
         }
       }
 
-      // デフォルトウェルカムメッセージ（学生ポータルとして自然なトーン）
+      // デフォルトウェルカムメッセージ
       setMessages([
         {
           id: 'welcome',
           sender: 'assistant',
-          text: `日本大学文理学部（CHS）学生ポータル「EneKoma（エネコマ）」へようこそ。\n\n本システムでは、文理学部公式『学部要覧』および開講時間割データに基づいて、以下のサポートを提供しています：\n\n・**曜日・時限別の空き教室検索**：指定したコマ・時間帯に空いている講義室（3号館、4号館、1号館、2号館）を即時案内します。\n・**時間割表・成績表の画像読取（Gemini連携）**：時間割の写真を送ると「今期履修中」または「修得済み」として登録。成績通知書からは修得単位・GPA・評価を読み取ります。\n・**単位・卒業要件判定**：学科必修科目・コース科目・124単位までの残り状況を公式要覧基準で厳格チェック。\n・**キャンパス設備・構内案内**：4桁教室番号の場所、クレジットカード対応自販機、80円飲料、図書館等の営業時間。\n\n画面上部の検索バーや下の質問ボタンから、知りたい内容をお気軽に入力してください。`,
+          text: `日本大学文理学部（CHS）学生ポータル「EneKoma（エネコマ）」へようこそ。\n\n本システムでは、文理学部公式『学部要覧』および開講時間割データに基づいて、以下のサポートを提供しています：\n\n・**曜日・時限別の空き教室検索**：指定したコマ・時間帯に空いている講義室（3号館、4号館、1号館、2号館）を即時案内します。\n・**時間割表・成績表の画像読取（Gemini連携）**：時間割の写真を送ると「今期履修中」または「修得済み」として登録。成績通知書からは修得単位・GPA・評価を読み取ります。\n・**学生アカウント個別管理**：画面右上の「ログイン / 学生登録」から自分専用のアカウントを作成・切り替え可能です。\n・**単位・卒業要件判定**：学科必修科目・コース科目・124単位までの残り状況を公式要覧基準で厳格チェック。\n・**キャンパス設備・構内案内**：4桁教室番号の場所、クレジットカード対応自販機、80円飲料、図書館等の営業時間。\n\n画面上部の検索バーや下の質問ボタンから、知りたい内容をお気軽に入力してください。`,
           shortLabel: 'EneKomaポータル',
           source: 'local',
           timestamp: new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })
@@ -228,18 +277,33 @@ export default function UnifiedAssistantPage() {
     }
   }, []);
 
-  // 履歴保存
+  // 履歴保存（個別学生アカウントにも自動同期）
   useEffect(() => {
     if (typeof window !== 'undefined' && messages.length > 0) {
       localStorage.setItem('enekoma_chat_history', JSON.stringify(messages));
+      if (currentStudent) {
+        const updatedStudent: StudentAccount = {
+          ...currentStudent,
+          chatHistory: messages
+        };
+        saveStudentAccount(updatedStudent);
+      }
     }
-  }, [messages]);
+  }, [messages, currentStudent]);
 
-  // プロフィール保存
+  // プロフィール保存（個別学生アカウントにも自動同期）
   const saveProfile = (newProfile: UserProfile) => {
     setUserProfile(newProfile);
     if (typeof window !== 'undefined') {
       localStorage.setItem('enekoma_user_profile', JSON.stringify(newProfile));
+      if (currentStudent) {
+        const updatedStudent: StudentAccount = {
+          ...currentStudent,
+          profile: newProfile
+        };
+        setCurrentStudent(updatedStudent);
+        saveStudentAccount(updatedStudent);
+      }
     }
   };
 
@@ -248,24 +312,44 @@ export default function UnifiedAssistantPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isLoading]);
 
-  // 画像ファイル選択
-  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // ファイル選択（画像・PDF・CSV・表計算・文書など全形式対応）
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (!file.type.startsWith('image/')) {
-      alert('画像ファイル（PNG, JPEG, WebP等）を選択してください。');
-      return;
+    const fileName = file.name;
+    const lower = fileName.toLowerCase();
+    let fileType: 'image' | 'pdf' | 'csv' | 'document' = 'document';
+    let mimeType = file.type || 'application/octet-stream';
+
+    if (file.type.startsWith('image/') || /\.(png|jpe?g|webp|gif|bmp|heic|heif)$/i.test(lower)) {
+      fileType = 'image';
+      mimeType = file.type || 'image/jpeg';
+    } else if (file.type === 'application/pdf' || lower.endsWith('.pdf')) {
+      fileType = 'pdf';
+      mimeType = 'application/pdf';
+    } else if (file.type.includes('csv') || lower.endsWith('.csv')) {
+      fileType = 'csv';
+      mimeType = 'text/csv';
+    } else if (file.type.includes('text') || lower.endsWith('.txt')) {
+      fileType = 'document';
+      mimeType = 'text/plain';
+    } else if (lower.endsWith('.xlsx') || lower.endsWith('.xls')) {
+      fileType = 'document';
+      mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
     }
 
     const reader = new FileReader();
     reader.onload = () => {
       const result = reader.result as string;
-      setAttachedImage({
-        mimeType: file.type,
+      setAttachedFile({
+        name: fileName,
+        size: file.size,
+        mimeType,
         data: result,
-        previewUrl: result,
-        imageType: 'current_timetable' // 初期値は今期の時間割
+        previewUrl: fileType === 'image' ? result : undefined,
+        fileType,
+        imageType: 'current_timetable' // 初期値：今期の時間割
       });
     };
     reader.readAsDataURL(file);
@@ -287,24 +371,221 @@ export default function UnifiedAssistantPage() {
     return { shortLabel, mainText };
   };
 
+  // プロフィール更新処理（履修中・修得済み・成績表の確実な反映）
+  const applyProfileUpdate = (update: any): boolean => {
+    if (!update) return false;
+    let updatedProf = { ...userProfile };
+    const notifs: string[] = [];
+    let modified = false;
+
+    // 1. 今期の時間割（履修中）
+    if (update.action === 'enroll_current_timetable' || Array.isArray(update.enrolledCourses)) {
+      const rawCourses: any[] = Array.isArray(update.enrolledCourses) ? update.enrolledCourses : [];
+      if (rawCourses.length > 0) {
+        const validatedCourses: EnrolledCourseItem[] = rawCourses.map((c) => ({
+          name: String(c.name || '未定科目').trim(),
+          day: (['月', '火', '水', '木', '金', '土'].includes(c.day) ? c.day : '月') as any,
+          period: Number(c.period) >= 1 && Number(c.period) <= 5 ? Number(c.period) : 1,
+          room: String(c.room || '').trim(),
+          credits: Number(c.credits) || 2,
+          teacher: c.teacher ? String(c.teacher).trim() : undefined
+        }));
+
+        const semCr = Number(update.semesterCredits) || validatedCourses.reduce((sum, c) => sum + (c.credits || 2), 0);
+        updatedProf = {
+          ...updatedProf,
+          enrolledCourses: validatedCourses,
+          semesterCredits: semCr
+        };
+        notifs.push(`今期時間割を登録しました（${validatedCourses.length}科目 / ${semCr}単位を履修中に反映）`);
+        modified = true;
+      }
+    }
+
+    // 2. 過去の時間割（修得済みに加算：勝手な評価はつけず「修得」として登録）
+    if (update.action === 'add_completed_timetable' || Array.isArray(update.addCompletedCourses)) {
+      const toAdd: CourseRecord[] = (update.addCompletedCourses || []).map((c: any) => ({
+        name: String(c.name || '').trim(),
+        credits: Number(c.credits) || 2,
+        grade: '修得',
+        year: Number(c.year) || 1
+      })).filter((c: CourseRecord) => c.name.length > 0);
+
+      if (toAdd.length > 0) {
+        const existingNames = new Set(updatedProf.completedCourses.map((c) => c.name));
+        const newlyAdded = toAdd.filter((c) => !existingNames.has(c.name));
+        const addedCredits = newlyAdded.reduce((sum, c) => sum + c.credits, 0);
+        const newCompleted = [...updatedProf.completedCourses, ...newlyAdded];
+        const newTotal = Number(update.totalEarnedCredits) || (updatedProf.currentCredits + addedCredits);
+        updatedProf = {
+          ...updatedProf,
+          completedCourses: newCompleted,
+          currentCredits: newTotal
+        };
+        notifs.push(`過去の時間割から${newlyAdded.length}科目を修得済みに登録（+${addedCredits}単位・評価なし）`);
+        modified = true;
+      }
+    }
+
+    // 3. 成績表・成績通知書
+    if (update.action === 'transcript' || (update.totalEarnedCredits !== undefined && update.currentGpa !== undefined)) {
+      const newCredits = Number(update.totalEarnedCredits) ?? updatedProf.currentCredits;
+      const newGpa = Number(update.currentGpa) ?? updatedProf.currentGpa;
+      let newCompleted = updatedProf.completedCourses;
+      if (Array.isArray(update.completedCourses) && update.completedCourses.length > 0) {
+        newCompleted = update.completedCourses.map((c: any) => ({
+          name: String(c.name || '').trim(),
+          credits: Number(c.credits) || 2,
+          grade: c.grade || 'A',
+          year: Number(c.year) || 1
+        }));
+      }
+      updatedProf = {
+        ...updatedProf,
+        currentCredits: newCredits,
+        currentGpa: newGpa,
+        completedCourses: newCompleted
+      };
+      notifs.push(`成績表から反映しました（修得 ${newCredits}単位 / GPA ${newGpa.toFixed(2)}）`);
+      modified = true;
+    }
+
+    if (modified) {
+      saveProfile(updatedProf);
+      if (notifs.length > 0) {
+        setProfileNotification(`✓ ${notifs.join(' ｜ ')}`);
+        setTimeout(() => setProfileNotification(null), 8000);
+      }
+    }
+    return modified;
+  };
+
+  // 学生アカウント切り替え
+  const handleSwitchToStudent = (account: StudentAccount) => {
+    setCurrentStudentId(account.id);
+    setCurrentStudent(account);
+    const prof: UserProfile = {
+      ...DEFAULT_PROFILE,
+      ...account.profile,
+      enrolledCourses: account.profile.enrolledCourses || [],
+      completedCourses: account.profile.completedCourses || []
+    };
+    setUserProfile(prof);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('enekoma_user_profile', JSON.stringify(prof));
+    }
+
+    if (account.chatHistory && account.chatHistory.length > 0) {
+      setMessages(account.chatHistory);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('enekoma_chat_history', JSON.stringify(account.chatHistory));
+      }
+    } else {
+      setMessages([
+        {
+          id: `welcome_${account.id}`,
+          sender: 'assistant',
+          text: `こんにちは、${account.name}さん（${account.department} ${account.grade}年）。\n\nあなた専用の履修カルテが有効になりました。時間割・成績表の登録や空き教室検索など何でも聞いてください。`,
+          shortLabel: 'ログイン完了',
+          source: 'local',
+          timestamp: new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })
+        }
+      ]);
+    }
+    setShowAuthModal(false);
+    setProfileNotification(`✓ ${account.name}さん（${account.department} ${account.grade}年）としてログインしました`);
+    setTimeout(() => setProfileNotification(null), 5000);
+  };
+
+  // ログインフォーム送信
+  const handleStudentLogin = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    setAuthError(null);
+    if (!loginId.trim()) {
+      setAuthError('学籍番号またはIDを入力してください。');
+      return;
+    }
+    const acc = authenticateStudent(loginId, loginPassword);
+    if (!acc) {
+      setAuthError('該当する学生アカウントが見つからないか、パスワードが違います。下のデモアカウント（日大文太/桜上水花子）もワンクリックでお試しいただけます。');
+      return;
+    }
+    handleSwitchToStudent(acc);
+    setLoginId('');
+    setLoginPassword('');
+  };
+
+  // 新規登録フォーム送信
+  const handleStudentRegister = (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError(null);
+    if (!regId.trim()) {
+      setAuthError('学籍番号またはIDを入力してください。');
+      return;
+    }
+    if (!regName.trim()) {
+      setAuthError('お名前またはニックネームを入力してください。');
+      return;
+    }
+
+    const newAcc = registerNewStudent({
+      id: regId.trim(),
+      name: regName.trim(),
+      password: regPassword.trim() || '1234',
+      department: regDept,
+      grade: regGrade,
+      admissionYear: regAdmissionYear
+    });
+
+    handleSwitchToStudent(newAcc);
+    setRegId('');
+    setRegName('');
+  };
+
+  // ログアウト
+  const handleStudentLogout = () => {
+    if (confirm('ログアウトしてゲストモードに戻りますか？現在の履修データと会話履歴は学籍番号ごとに保存されています。')) {
+      setCurrentStudentId(null);
+      setCurrentStudent(null);
+      setUserProfile(DEFAULT_PROFILE);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('enekoma_user_profile', JSON.stringify(DEFAULT_PROFILE));
+      }
+      setMessages([
+        {
+          id: 'welcome_guest',
+          sender: 'assistant',
+          text: `ログアウトしました（ゲストモード）。\n\n再度ログインするには画面右上の「🔑 ログイン / 学生登録」を押してください。`,
+          shortLabel: 'ゲストモード',
+          source: 'local',
+          timestamp: new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })
+        }
+      ]);
+      setShowAuthModal(false);
+      setProfileNotification('ログアウトしました（ゲストモード）');
+      setTimeout(() => setProfileNotification(null), 4000);
+    }
+  };
+
   // メッセージ送信
   const handleSend = async (queryToSend?: string, overrideImageType?: 'current_timetable' | 'past_timetable' | 'transcript' | 'auto') => {
     const text = (queryToSend ?? inputText).trim();
-    const currentImg = attachedImage;
-    const finalImageType = overrideImageType || currentImg?.imageType || 'auto';
+    const currentFile = attachedFile;
+    const finalImageType = overrideImageType || currentFile?.imageType || 'auto';
 
-    if ((!text && !currentImg) || isLoading) return;
+    if ((!text && !currentFile) || isLoading) return;
 
     let userDisplayText = text;
-    if (!userDisplayText && currentImg) {
+    if (!userDisplayText && currentFile) {
+      const fileLabel = currentFile.name || '添付ファイル';
       if (finalImageType === 'current_timetable') {
-        userDisplayText = '今期の時間割表画像を送信しました（履修中科目に登録）';
+        userDisplayText = `今期の時間割（${fileLabel}）を送信しました（履修中科目に登録）`;
       } else if (finalImageType === 'past_timetable') {
-        userDisplayText = '過去の時間割表画像を送信しました（修得済み科目に追加）';
+        userDisplayText = `過去の時間割（${fileLabel}）を送信しました（修得済み科目に追加・評価なし）`;
       } else if (finalImageType === 'transcript') {
-        userDisplayText = '成績通知書画像を送信しました（単位・GPA・評価を反映）';
+        userDisplayText = `成績通知書（${fileLabel}）を送信しました（単位・GPA・評価を反映）`;
       } else {
-        userDisplayText = '画像を送信しました（時間割・成績表）';
+        userDisplayText = `ファイル（${fileLabel}）を送信しました`;
       }
     }
 
@@ -312,22 +593,22 @@ export default function UnifiedAssistantPage() {
       id: `user_${Date.now()}`,
       sender: 'user',
       text: userDisplayText,
-      imagePreview: currentImg?.previewUrl,
-      imageTypeLabel: currentImg
+      imagePreview: currentFile?.previewUrl,
+      imageTypeLabel: currentFile
         ? finalImageType === 'current_timetable'
           ? '今期の時間割'
           : finalImageType === 'past_timetable'
-          ? '過去の時間割'
+          ? '過去の時間割（修得）'
           : finalImageType === 'transcript'
           ? '成績通知書'
-          : '画像解析'
+          : '添付ファイル'
         : undefined,
       timestamp: new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })
     };
 
     setMessages((prev) => [...prev, userMessage]);
     if (!queryToSend) setInputText('');
-    setAttachedImage(null);
+    setAttachedFile(null);
     setIsLoading(true);
 
     try {
@@ -343,8 +624,8 @@ export default function UnifiedAssistantPage() {
           query: text,
           apiKey: apiKey.trim(),
           history: historyPayload,
-          image: currentImg ? { mimeType: currentImg.mimeType, data: currentImg.data } : null,
-          imageType: currentImg ? finalImageType : null,
+          image: currentFile ? { mimeType: currentFile.mimeType, data: currentFile.data } : null,
+          imageType: currentFile ? finalImageType : null,
           userProfile
         })
       });
@@ -357,66 +638,17 @@ export default function UnifiedAssistantPage() {
       const rawReply = data.reply || '回答を取得できませんでした。';
       const { shortLabel, mainText } = parseResponse(rawReply);
 
-      // プロフィール自動更新の処理（今期時間割・過去時間割・成績表の3パターン）
+      // プロフィール自動更新の確実な適用
+      let updatedViaProfile = false;
       if (data.profileUpdate) {
-        const update = data.profileUpdate;
-        let updatedProf = { ...userProfile };
-        const notifs: string[] = [];
+        updatedViaProfile = applyProfileUpdate(data.profileUpdate);
+      }
 
-        // 1. 今期の時間割（履修中）
-        if (update.action === 'enroll_current_timetable' || Array.isArray(update.enrolledCourses)) {
-          const courses: EnrolledCourseItem[] = update.enrolledCourses || [];
-          const semCr = update.semesterCredits ?? courses.reduce((sum, c) => sum + (c.credits || 2), 0);
-          updatedProf = {
-            ...updatedProf,
-            enrolledCourses: courses,
-            semesterCredits: semCr
-          };
-          notifs.push(`今期時間割を登録しました（${courses.length}科目 / ${semCr}単位を履修中に反映）`);
-        }
-
-        // 2. 過去の時間割（修得済みに加算）
-        if (update.action === 'add_completed_timetable' || Array.isArray(update.addCompletedCourses)) {
-          const toAdd: CourseRecord[] = (update.addCompletedCourses || []).map((c: any) => ({
-            name: c.name,
-            credits: c.credits || 2,
-            grade: c.grade || 'A',
-            year: c.year || 1
-          }));
-          const existingNames = new Set(updatedProf.completedCourses.map((c) => c.name));
-          const newlyAdded = toAdd.filter((c) => !existingNames.has(c.name));
-          const addedCredits = newlyAdded.reduce((sum, c) => sum + c.credits, 0);
-          const newCompleted = [...updatedProf.completedCourses, ...newlyAdded];
-          const newTotal = update.totalEarnedCredits ?? (updatedProf.currentCredits + addedCredits);
-          updatedProf = {
-            ...updatedProf,
-            completedCourses: newCompleted,
-            currentCredits: newTotal
-          };
-          notifs.push(`過去の時間割から${newlyAdded.length}科目を修得済みに登録（+${addedCredits}単位）`);
-        }
-
-        // 3. 成績表・成績通知書
-        if (update.action === 'transcript' || (update.totalEarnedCredits !== undefined && update.currentGpa !== undefined)) {
-          const newCredits = update.totalEarnedCredits ?? updatedProf.currentCredits;
-          const newGpa = update.currentGpa ?? updatedProf.currentGpa;
-          let newCompleted = updatedProf.completedCourses;
-          if (Array.isArray(update.completedCourses) && update.completedCourses.length > 0) {
-            newCompleted = update.completedCourses;
-          }
-          updatedProf = {
-            ...updatedProf,
-            currentCredits: newCredits,
-            currentGpa: newGpa,
-            completedCourses: newCompleted
-          };
-          notifs.push(`成績表から反映しました（修得 ${newCredits}単位 / GPA ${newGpa.toFixed(2)}）`);
-        }
-
-        saveProfile(updatedProf);
-        if (notifs.length > 0) {
-          setProfileNotification(`✓ ${notifs.join(' ｜ ')}`);
-          setTimeout(() => setProfileNotification(null), 6000);
+      // サーバーで profileUpdate が解析されなかった場合でも、回答テキストからマルチステージ抽出を実行
+      if (!updatedViaProfile && (currentFile || text.includes('時間割') || text.includes('成績'))) {
+        const extracted = parseProfileUpdateFromText(rawReply, !!currentFile);
+        if (extracted) {
+          applyProfileUpdate(extracted);
         }
       }
 
@@ -445,16 +677,16 @@ export default function UnifiedAssistantPage() {
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 systemInstruction: {
-                  parts: [{ text: 'あなたは日本大学文理学部（CHS）公式アシスタント「EneKoma」です。学部要覧（卒業要件124単位、年間CAP制40単位、学科必修）および校舎施設データに基づき、丁寧かつ正確に回答してください。' }]
+                  parts: [{ text: 'あなたは日本大学文理学部（CHS）公式アシスタント「EneKoma」です。時間割表やファイルを受け取った場合は科目を読み取り、必ず末尾に ```profile_update JSONコードブロックを出力してください。' }]
                 },
                 contents: [{
                   role: 'user',
                   parts: [
                     { text: `【ユーザープロフィール】学科: ${userProfile.department}、学年: ${userProfile.grade}年、現在GPA: ${userProfile.currentGpa}、修得単位: ${userProfile.currentCredits}単位\n\n質問: ${text}` },
-                    ...(currentImg?.data ? [{
+                    ...(currentFile?.data ? [{
                       inlineData: {
-                        mimeType: currentImg.mimeType || 'image/jpeg',
-                        data: currentImg.data.replace(/^data:[^;]+;base64,/, '')
+                        mimeType: currentFile.mimeType || 'image/jpeg',
+                        data: currentFile.data.replace(/^data:[^;]+;base64,/, '')
                       }
                     }] : [])
                   ]
@@ -468,13 +700,20 @@ export default function UnifiedAssistantPage() {
             const candText = directData?.candidates?.[0]?.content?.parts?.[0]?.text;
             if (candText) {
               const { shortLabel, mainText } = parseResponse(candText);
+
+              // Direct fallbackでもプロフィール更新を確実に抽出・反映
+              const extracted = parseProfileUpdateFromText(candText, !!currentFile);
+              if (extracted) {
+                applyProfileUpdate(extracted);
+              }
+
               const assistantMessage: ChatMessage = {
                 id: `assistant_${Date.now()}`,
                 sender: 'assistant',
                 text: mainText,
                 shortLabel,
                 source: 'gemini',
-                model: 'gemini-1.5-flash',
+                model: 'gemini-direct',
                 timestamp: new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })
               };
               setMessages((prev) => [...prev, assistantMessage]);
@@ -759,6 +998,37 @@ export default function UnifiedAssistantPage() {
 
         {/* ヘッダー右側：実用的なステータスとナビゲーション */}
         <div className="flex items-center space-x-2">
+          {/* 学生個別アカウント切替・ログインボタン */}
+          {currentStudent ? (
+            <button
+              onClick={() => {
+                setAuthTab('info');
+                setShowAuthModal(true);
+              }}
+              className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-md text-xs font-semibold bg-slate-900 text-white hover:bg-slate-800 border border-slate-700 transition shadow-xs"
+              title="学生カルテ・アカウント切替"
+            >
+              <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+              <span>{currentStudent.name}</span>
+              <span className="hidden lg:inline text-slate-300 font-normal">
+                ({currentStudent.department.replace('学科', '')} {currentStudent.grade}年)
+              </span>
+            </button>
+          ) : (
+            <button
+              onClick={() => {
+                setAuthTab('login');
+                setShowAuthModal(true);
+              }}
+              className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 transition"
+              title="学生アカウントでログインまたは新規登録"
+            >
+              <span>🔑</span>
+              <span className="hidden sm:inline">ログイン / 学生登録</span>
+              <span className="sm:hidden">ログイン</span>
+            </button>
+          )}
+
           {/* 今期履修中単位バッジ */}
           <button
             onClick={() => {
@@ -1056,22 +1326,39 @@ export default function UnifiedAssistantPage() {
           ))}
         </div>
 
-        {/* 添付画像プレビュー＆読み取り種別セレクター */}
-        {attachedImage && (
-          <div className="mb-2 p-3 bg-slate-50 border border-slate-200 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+        {/* 添付ファイルプレビュー＆読み取り種別セレクター */}
+        {attachedFile && (
+          <div className="mb-2 p-3 bg-slate-50 border border-slate-200 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow-2xs">
             <div className="flex items-center space-x-3">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={attachedImage.previewUrl} alt="添付画像" className="w-12 h-12 object-cover rounded border border-slate-300" />
+              {attachedFile.previewUrl ? (
+                /* eslint-disable-next-line @next/next/no-img-element */
+                <img src={attachedFile.previewUrl} alt="添付ファイル" className="w-12 h-12 object-cover rounded border border-slate-300" />
+              ) : (
+                <div className="w-12 h-12 rounded border border-slate-300 bg-white flex flex-col items-center justify-center text-slate-700 shadow-2xs shrink-0">
+                  <span className="text-xl">
+                    {attachedFile.fileType === 'pdf' ? '📄' : attachedFile.fileType === 'csv' ? '📊' : '📁'}
+                  </span>
+                  <span className="text-[9px] font-bold uppercase tracking-tight text-slate-500">
+                    {attachedFile.fileType}
+                  </span>
+                </div>
+              )}
               <div>
-                <div className="text-xs font-semibold text-slate-900">画像を添付しました（解析種別を選択してください）</div>
+                <div className="text-xs font-semibold text-slate-900 flex items-center space-x-1.5">
+                  <span className="truncate max-w-[200px] sm:max-w-xs">{attachedFile.name}</span>
+                  <span className="text-[10px] text-slate-400 font-normal shrink-0">
+                    ({Math.max(1, Math.round(attachedFile.size / 1024))} KB)
+                  </span>
+                </div>
+                <div className="text-[11px] text-slate-500 mt-0.5">解析種別を選択してください：</div>
                 {/* 種別切り替えタブ */}
                 <div className="flex flex-wrap gap-1 mt-1">
                   <button
                     type="button"
-                    onClick={() => setAttachedImage({ ...attachedImage, imageType: 'current_timetable' })}
+                    onClick={() => setAttachedFile({ ...attachedFile, imageType: 'current_timetable' })}
                     className={`text-[11px] px-2 py-0.5 rounded border transition ${
-                      attachedImage.imageType === 'current_timetable'
-                        ? 'bg-slate-800 text-white border-slate-800'
+                      attachedFile.imageType === 'current_timetable'
+                        ? 'bg-slate-800 text-white border-slate-800 font-medium'
                         : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
                     }`}
                   >
@@ -1079,31 +1366,31 @@ export default function UnifiedAssistantPage() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => setAttachedImage({ ...attachedImage, imageType: 'past_timetable' })}
+                    onClick={() => setAttachedFile({ ...attachedFile, imageType: 'past_timetable' })}
                     className={`text-[11px] px-2 py-0.5 rounded border transition ${
-                      attachedImage.imageType === 'past_timetable'
-                        ? 'bg-slate-800 text-white border-slate-800'
+                      attachedFile.imageType === 'past_timetable'
+                        ? 'bg-slate-800 text-white border-slate-800 font-medium'
                         : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
                     }`}
                   >
-                    📜 過去の時間割（修得済みに追加）
+                    📜 過去の時間割（修得済みに追加・評価なし）
                   </button>
                   <button
                     type="button"
-                    onClick={() => setAttachedImage({ ...attachedImage, imageType: 'transcript' })}
+                    onClick={() => setAttachedFile({ ...attachedFile, imageType: 'transcript' })}
                     className={`text-[11px] px-2 py-0.5 rounded border transition ${
-                      attachedImage.imageType === 'transcript'
-                        ? 'bg-slate-800 text-white border-slate-800'
+                      attachedFile.imageType === 'transcript'
+                        ? 'bg-slate-800 text-white border-slate-800 font-medium'
                         : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
                     }`}
                   >
-                    📊 成績通知書（GPA・単位）
+                    📊 成績通知書（GPA・単位・評価）
                   </button>
                 </div>
               </div>
             </div>
             <button
-              onClick={() => setAttachedImage(null)}
+              onClick={() => setAttachedFile(null)}
               className="self-end sm:self-center text-slate-400 hover:text-slate-700 text-sm px-2 py-1"
               title="添付を解除"
             >
@@ -1114,19 +1401,19 @@ export default function UnifiedAssistantPage() {
 
         {/* 入力フォーム */}
         <div className="flex items-end space-x-2">
-          {/* 画像添付ボタン */}
+          {/* ファイル添付ボタン（画像・PDF・CSV・文書など全形式対応） */}
           <input
             type="file"
             ref={fileInputRef}
-            onChange={handleImageSelect}
-            accept="image/*"
+            onChange={handleFileSelect}
+            accept="*"
             className="hidden"
           />
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
             className="p-2.5 rounded-lg border border-slate-300 hover:bg-slate-100 text-slate-600 transition"
-            title="時間割表または成績表の画像を添付"
+            title="時間割表・成績表・PDF・CSV・文書ファイル等を添付"
           >
             📎
           </button>
@@ -1147,7 +1434,7 @@ export default function UnifiedAssistantPage() {
           {/* 送信ボタン */}
           <button
             onClick={() => handleSend()}
-            disabled={(!inputText.trim() && !attachedImage) || isLoading}
+            disabled={(!inputText.trim() && !attachedFile) || isLoading}
             className="px-4 py-2.5 bg-slate-800 hover:bg-slate-900 disabled:bg-slate-300 text-white rounded-lg font-medium text-sm transition flex items-center justify-center shrink-0"
           >
             送信
@@ -1397,7 +1684,17 @@ export default function UnifiedAssistantPage() {
                           <tr key={i} className="hover:bg-slate-50">
                             <td className="py-2 px-2.5 font-medium text-slate-900">{c.name}</td>
                             <td className="py-2 px-2.5 text-slate-600">{c.credits}単位</td>
-                            <td className="py-2 px-2.5 font-bold text-slate-700">{c.grade}</td>
+                            <td className="py-2 px-2.5 whitespace-nowrap">
+                              <span className={`px-2 py-0.5 rounded text-[11px] font-semibold ${
+                                c.grade === 'S' ? 'bg-purple-100 text-purple-800' :
+                                c.grade === 'A' ? 'bg-emerald-100 text-emerald-800' :
+                                c.grade === 'B' ? 'bg-blue-100 text-blue-800' :
+                                c.grade === 'C' ? 'bg-amber-100 text-amber-800' :
+                                'bg-slate-100 text-slate-700 border border-slate-200'
+                              }`}>
+                                {c.grade || '修得'}
+                              </span>
+                            </td>
                             <td className="py-2 px-2.5 text-center">
                               <button
                                 type="button"
@@ -1954,6 +2251,366 @@ export default function UnifiedAssistantPage() {
             <div className="p-3 border-t border-slate-200 bg-slate-50 flex justify-end">
               <button
                 onClick={() => setShowDrawer(false)}
+                className="px-4 py-1.5 bg-slate-800 text-white rounded-md text-xs font-medium hover:bg-slate-900"
+              >
+                閉じる
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================
+          学生個別アカウント・ログインモーダル
+      ======================================================== */}
+      {showAuthModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-2xs">
+          <div className="bg-white rounded-xl shadow-lg max-w-lg w-full max-h-[90vh] flex flex-col border border-slate-200">
+            {/* モーダルヘッダー */}
+            <div className="flex items-center justify-between p-4 border-b border-slate-200 bg-slate-50 rounded-t-xl">
+              <div>
+                <h3 className="text-base font-bold text-slate-900 flex items-center space-x-2">
+                  <span>🎓</span>
+                  <span>文理学部 学生ログイン / アカウント管理</span>
+                </h3>
+                <p className="text-xs text-slate-500">
+                  学生ごとに時間割・修得単位・GPA・会話履歴を個別管理できます
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  setShowAuthModal(false);
+                  setAuthError(null);
+                }}
+                className="text-slate-400 hover:text-slate-700 text-lg px-2"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* ナビゲーションタブ */}
+            <div className="flex border-b border-slate-200 bg-white px-3 pt-2 space-x-1">
+              <button
+                onClick={() => { setAuthTab('login'); setAuthError(null); }}
+                className={`px-3 py-1.5 text-xs font-semibold border-b-2 whitespace-nowrap transition ${
+                  authTab === 'login'
+                    ? 'border-slate-800 text-slate-900 bg-slate-50 rounded-t'
+                    : 'border-transparent text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                🔑 ログイン
+              </button>
+              <button
+                onClick={() => { setAuthTab('register'); setAuthError(null); }}
+                className={`px-3 py-1.5 text-xs font-semibold border-b-2 whitespace-nowrap transition ${
+                  authTab === 'register'
+                    ? 'border-slate-800 text-slate-900 bg-slate-50 rounded-t'
+                    : 'border-transparent text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                📝 新規学生登録
+              </button>
+              {currentStudent && (
+                <button
+                  onClick={() => { setAuthTab('info'); setAuthError(null); }}
+                  className={`px-3 py-1.5 text-xs font-semibold border-b-2 whitespace-nowrap transition ${
+                    authTab === 'info'
+                      ? 'border-slate-800 text-slate-900 bg-slate-50 rounded-t'
+                      : 'border-transparent text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  👤 学生カルテ
+                </button>
+              )}
+              <button
+                onClick={() => { setAuthTab('switch'); setAuthError(null); }}
+                className={`px-3 py-1.5 text-xs font-semibold border-b-2 whitespace-nowrap transition ${
+                  authTab === 'switch'
+                    ? 'border-slate-800 text-slate-900 bg-slate-50 rounded-t'
+                    : 'border-transparent text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                🔄 アカウント切替
+              </button>
+            </div>
+
+            {/* エラー表示 */}
+            {authError && (
+              <div className="mx-4 mt-3 p-2.5 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-md">
+                ⚠️ {authError}
+              </div>
+            )}
+
+            {/* モーダルコンテンツ */}
+            <div className="p-4 overflow-y-auto text-xs sm:text-sm text-slate-700 space-y-4">
+              {/* TAB 1: ログイン */}
+              {authTab === 'login' && (
+                <div className="space-y-4">
+                  <form onSubmit={handleStudentLogin} className="space-y-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        学籍番号 または ログインID
+                      </label>
+                      <input
+                        type="text"
+                        value={loginId}
+                        onChange={(e) => setLoginId(e.target.value)}
+                        placeholder="例: 5424001"
+                        className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-slate-800"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        パスワード（初期値: 1234）
+                      </label>
+                      <input
+                        type="password"
+                        value={loginPassword}
+                        onChange={(e) => setLoginPassword(e.target.value)}
+                        placeholder="••••"
+                        className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-slate-800"
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      className="w-full py-2 bg-slate-900 text-white rounded-md text-xs font-medium hover:bg-slate-800 transition"
+                    >
+                      ログインしてカルテを読み込む
+                    </button>
+                  </form>
+
+                  {/* 1クリック体験デモアカウント */}
+                  <div className="pt-3 border-t border-slate-200">
+                    <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-2">
+                      💡 ワンクリック体験（デモアカウントですぐ試す）
+                    </p>
+                    <div className="space-y-2">
+                      {Object.values(INITIAL_DEMO_ACCOUNTS).map((demo) => (
+                        <button
+                          key={demo.id}
+                          type="button"
+                          onClick={() => handleSwitchToStudent(demo)}
+                          className="w-full text-left p-2.5 rounded-lg border border-slate-200 hover:border-slate-400 hover:bg-slate-50 transition flex items-center justify-between"
+                        >
+                          <div>
+                            <div className="font-semibold text-slate-900 text-xs">
+                              {demo.name}（学籍番号: {demo.id}）
+                            </div>
+                            <div className="text-[11px] text-slate-500">
+                              {demo.department} {demo.grade}年 ｜ {demo.admissionYear === 'reiwa7_or_later' ? '令和7年度新カリ' : '令和6年度以前旧カリ'}
+                            </div>
+                          </div>
+                          <span className="text-[11px] px-2 py-1 bg-slate-100 text-slate-700 rounded font-medium">
+                            切り替え ➔
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* TAB 2: 新規学生登録 */}
+              {authTab === 'register' && (
+                <form onSubmit={handleStudentRegister} className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      学籍番号 または ユーザーID <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={regId}
+                      onChange={(e) => setRegId(e.target.value)}
+                      placeholder="例: 5425123"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-slate-800"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      氏名 / ニックネーム <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={regName}
+                      onChange={(e) => setRegName(e.target.value)}
+                      placeholder="例: 日大 太郎"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-slate-800"
+                      required
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        所属学科
+                      </label>
+                      <select
+                        value={regDept}
+                        onChange={(e) => setRegDept(e.target.value)}
+                        className="w-full px-2.5 py-2 border border-slate-300 rounded-md text-xs bg-white"
+                      >
+                        {CHS_DEPARTMENTS.map((d) => (
+                          <option key={d} value={d}>{d}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        学年
+                      </label>
+                      <select
+                        value={regGrade}
+                        onChange={(e) => setRegGrade(Number(e.target.value))}
+                        className="w-full px-2.5 py-2 border border-slate-300 rounded-md text-xs bg-white"
+                      >
+                        <option value={1}>1年</option>
+                        <option value={2}>2年</option>
+                        <option value={3}>3年</option>
+                        <option value={4}>4年</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      カリキュラム体系
+                    </label>
+                    <select
+                      value={regAdmissionYear}
+                      onChange={(e) => setRegAdmissionYear(e.target.value as any)}
+                      className="w-full px-2.5 py-2 border border-slate-300 rounded-md text-xs bg-white"
+                    >
+                      <option value="reiwa7_or_later">令和7年度以降入学者（新カリキュラム）</option>
+                      <option value="reiwa6_or_earlier">令和6年度以前入学者（旧カリキュラム）</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      パスワード（任意・初期値 1234）
+                    </label>
+                    <input
+                      type="password"
+                      value={regPassword}
+                      onChange={(e) => setRegPassword(e.target.value)}
+                      placeholder="1234"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-md text-xs"
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    className="w-full py-2 bg-slate-900 text-white rounded-md text-xs font-medium hover:bg-slate-800 transition"
+                  >
+                    アカウントを作成して開始
+                  </button>
+                </form>
+              )}
+
+              {/* TAB 3: 学生カルテ (Info) */}
+              {authTab === 'info' && currentStudent && (
+                <div className="space-y-4">
+                  <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-slate-900 text-sm">{currentStudent.name}</span>
+                      <span className="text-[11px] px-2 py-0.5 rounded bg-slate-200 text-slate-800 font-mono">
+                        学籍番号: {currentStudent.id}
+                      </span>
+                    </div>
+                    <div className="text-xs text-slate-600">
+                      {currentStudent.department} {currentStudent.grade}年 ｜ {currentStudent.admissionYear === 'reiwa7_or_later' ? '令和7年度新カリ' : '令和6年度以前旧カリ'}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 text-center text-xs">
+                    <div className="p-2.5 bg-white border border-slate-200 rounded-md">
+                      <div className="text-slate-400 text-[11px]">今期履修中</div>
+                      <div className="text-base font-bold text-slate-900">{userProfile.semesterCredits}単位</div>
+                      <div className="text-[10px] text-slate-500">{userProfile.enrolledCourses.length}科目</div>
+                    </div>
+                    <div className="p-2.5 bg-white border border-slate-200 rounded-md">
+                      <div className="text-slate-400 text-[11px]">修得済み単位</div>
+                      <div className="text-base font-bold text-slate-900">{userProfile.currentCredits} / 124</div>
+                      <div className="text-[10px] text-slate-500">GPA: {userProfile.currentGpa.toFixed(2)}</div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowAuthModal(false);
+                        setShowProfileModal(true);
+                      }}
+                      className="w-full py-2 bg-white border border-slate-300 rounded-md text-xs font-medium text-slate-700 hover:bg-slate-50 transition"
+                    >
+                      ⚙️ 履修科目・時間割を編集する
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleStudentLogout}
+                      className="w-full py-2 bg-rose-50 border border-rose-200 text-rose-700 rounded-md text-xs font-medium hover:bg-rose-100 transition"
+                    >
+                      🚪 ログアウト（ゲストモードへ戻る）
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* TAB 4: 保存済み全アカウント一覧切替 */}
+              {authTab === 'switch' && (
+                <div className="space-y-3">
+                  <p className="text-xs text-slate-500">
+                    このブラウザに保存されている学生カルテ一覧です。クリックして即座に切り替えられます：
+                  </p>
+                  <div className="space-y-2">
+                    {Object.values(loadAllAccounts()).map((acc) => {
+                      const isCurrent = currentStudent?.id === acc.id;
+                      return (
+                        <div
+                          key={acc.id}
+                          className={`p-3 rounded-lg border flex items-center justify-between transition ${
+                            isCurrent
+                              ? 'bg-slate-100 border-slate-400'
+                              : 'bg-white border-slate-200 hover:border-slate-300'
+                          }`}
+                        >
+                          <div>
+                            <div className="font-semibold text-slate-900 text-xs flex items-center space-x-1.5">
+                              <span>{acc.name}</span>
+                              {isCurrent && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 font-medium">
+                                  現在ログイン中
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-[11px] text-slate-500">
+                              学籍番号: {acc.id} ｜ {acc.department} {acc.grade}年
+                            </div>
+                          </div>
+                          {!isCurrent && (
+                            <button
+                              type="button"
+                              onClick={() => handleSwitchToStudent(acc)}
+                              className="px-2.5 py-1 text-xs bg-slate-800 text-white rounded font-medium hover:bg-slate-900 transition"
+                            >
+                              選択
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* モーダルフッター */}
+            <div className="p-3 border-t border-slate-200 bg-slate-50 flex justify-end rounded-b-xl">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowAuthModal(false);
+                  setAuthError(null);
+                }}
                 className="px-4 py-1.5 bg-slate-800 text-white rounded-md text-xs font-medium hover:bg-slate-900"
               >
                 閉じる

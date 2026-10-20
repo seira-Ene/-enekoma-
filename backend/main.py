@@ -1087,16 +1087,16 @@ SYSTEM_PROMPT = """
      }
      ```
    * **【種別B：過去の時間割表】（前学期・過年度の履修済み科目を追加する場合）**：
-     - 過去の時間割画像から科目名・単位数をOCR読み取り。
-     - 「修得済み科目」に一括追加し、総修得単位数に加算。
+     - 過去の時間割画像またはファイル（PDF/CSV/文書等）から科目名・単位数を読み取り。
+     - ※時間割表には成績評価（S/A/B/C等）は記載されていないため、勝手に成績を推測・捏造せず、評価は「修得」または「-」として「修得済み科目」に登録してください（GPAを不当に歪めないため）。
      - 出力末尾に以下の更新JSONを埋め込んでください：
      ```profile_update
      {
        "action": "add_completed_timetable",
        "totalEarnedCredits": 56,
        "addCompletedCourses": [
-         { "name": "自主創造の基礎", "credits": 2, "grade": "A" },
-         { "name": "情報リテラシー", "credits": 2, "grade": "A" }
+         { "name": "自主創造の基礎", "credits": 2, "grade": "修得" },
+         { "name": "情報リテラシー", "credits": 2, "grade": "修得" }
        ]
      }
      ```
@@ -1329,12 +1329,58 @@ def call_gemini_api(query: str, history: List[Dict[str, Any]], api_key: str, ima
             
             user_prompt_text = query
             if image:
-                if image_type == "current_timetable" or (not user_prompt_text and ("時間割" in query or "履修中" in query)):
-                    user_prompt_text = f"【添付画像：今期の時間割表】\\n{user_prompt_text}" if user_prompt_text else "添付された【今期の時間割表】画像をマルチモーダルOCR解析し、開講曜日・時限・教室・科目名・単位数・担当教員を読み取ってください。「今期履修中」として登録し、今期履修単位数合計を算出して、要約とプロフィール更新ブロック（action: 'enroll_current_timetable'）を出力してください。"
-                elif image_type == "past_timetable" or (not user_prompt_text and ("過去" in query or "修得済み" in query or "前学期" in query)):
-                    user_prompt_text = f"【添付画像：過去の時間割表】\\n{user_prompt_text}" if user_prompt_text else "添付された【過去の時間割表】画像をマルチモーダルOCR解析し、開講されていた科目名・単位数を読み取ってください。「修得済み科目」に追加登録し、総修得単位数に加算して、要約とプロフィール更新ブロック（action: 'add_completed_timetable'）を出力してください。"
-                elif not user_prompt_text:
-                    user_prompt_text = "添付された画像（時間割表または成績表）をマルチモーダルOCR解析し、今期時間割であれば「今期履修中」登録、過去時間割であれば「修得済み科目」追加、成績表であれば修得単位・GPA・評価を読み取って要約とプロフィール更新ブロックを出力してください。"
+                is_past = image_type == "past_timetable" or "過去" in query or "修得済み" in query or "前学期" in query
+                is_transcript = image_type == "transcript" or "成績" in query or "通知書" in query or "GPA" in query
+                
+                if is_past:
+                    img_inst = (
+                        "【最重要：過去の時間割表OCR・ファイル解析】\\n"
+                        "添付された過去の時間割表（画像またはPDF/ファイル）から履修済み科目をすべて抽出してください。\\n"
+                        "※重要：時間割表には成績（S〜C等）は記載されていないため、勝手に成績を捏造・推測せず、評価は「修得」（または「-」）として登録してください。\\n"
+                        "回答本文で案内した上で、必ず回答末尾に以下のJSONブロックを出力してください：\\n"
+                        "```profile_update\\n"
+                        "{\\n"
+                        '  "action": "add_completed_timetable",\\n'
+                        '  "totalEarnedCredits": 56,\\n'
+                        '  "addCompletedCourses": [\\n'
+                        '    { "name": "科目名", "credits": 2, "grade": "修得", "year": 1 }\\n'
+                        "  ]\\n"
+                        "}\\n"
+                        "```"
+                    )
+                elif is_transcript:
+                    img_inst = (
+                        "【最重要：成績通知書OCR解析】\\n"
+                        "添付された成績通知書画像をOCR解析し、履修済み科目、評価、GPA、総修得単位数を読み取ってください。\\n"
+                        "回答本文で結果を要約した上で、必ず回答末尾に以下のJSONブロックを出力してください：\\n"
+                        "```profile_update\\n"
+                        "{\\n"
+                        '  "action": "transcript",\\n'
+                        '  "totalEarnedCredits": 42,\\n'
+                        '  "currentGpa": 2.85,\\n'
+                        '  "completedCourses": [\\n'
+                        '    { "name": "科目名", "credits": 2, "grade": "S" }\\n'
+                        "  ]\\n"
+                        "}\\n"
+                        "```"
+                    )
+                else:
+                    img_inst = (
+                        "【最重要：今期の時間割表OCR解析・履修中科目登録】\\n"
+                        "添付された【今期の時間割表】画像をマルチモーダルOCR解析し、画像内に記載されている全ての開講科目（曜日・時限・教室・科目名・担当教員名・単位数）を漏れなく読み取ってください。\\n"
+                        "回答本文で整理して案内した上で、**必ず回答の末尾に以下のJSONコードブロックを完全に出力してください（厳守）**：\\n"
+                        "```profile_update\\n"
+                        "{\\n"
+                        '  "action": "enroll_current_timetable",\\n'
+                        '  "semesterCredits": 16,\\n'
+                        '  "enrolledCourses": [\\n'
+                        '    { "name": "正確な科目名", "day": "月", "period": 1, "room": "3306", "teacher": "教員名", "credits": 2 }\\n'
+                        "  ]\\n"
+                        "}\\n"
+                        "```\\n"
+                        "※全開講コマを1つ残らず enrolledCourses 配列に含めてください。"
+                    )
+                user_prompt_text = f"学生メッセージ: {query}\\n\\n{img_inst}" if query else img_inst
 
             prompt_text = f"{profile_context}{user_prompt_text}"
             user_parts.append({"text": prompt_text})
@@ -2024,12 +2070,19 @@ def unified_chat(req: ChatRequest):
         gemini_reply, model_name, err_msg = call_gemini_api(q, req.history or [], api_k, req.image, req.userProfile, req.imageType)
         if gemini_reply:
             profile_update = None
-            m = re.search(r"```profile_update\s*([\s\S]*?)\s*```", gemini_reply)
+            m = re.search(r"```(?:profile_update|json)?\s*([\s\S]*?)\s*```", gemini_reply, re.IGNORECASE)
             if m:
                 try:
-                    profile_update = json.loads(m.group(1))
+                    profile_update = json.loads(m.group(1).strip())
                 except Exception:
                     pass
+            if not profile_update:
+                raw_m = re.search(r"\{[\s\S]*?\"(?:enrolledCourses|addCompletedCourses|completedCourses|action)\"[\s\S]*?\}", gemini_reply)
+                if raw_m:
+                    try:
+                        profile_update = json.loads(raw_m.group(0))
+                    except Exception:
+                        pass
             return {
                 "reply": gemini_reply,
                 "source": "gemini",
