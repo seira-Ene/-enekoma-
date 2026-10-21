@@ -751,7 +751,7 @@ export async function GET() {
   return NextResponse.json({
     hasServerKey: serverKey.length > 0,
     serverKeyPrefix: serverKey.length > 8 ? `${serverKey.slice(0, 6)}...` : undefined,
-    availableModels: ['gemini-3.8-flash', 'gemini-flash-latest', 'gemini-3.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash']
+    availableModels: ['gemini-flash-lite-latest', 'gemini-3.5-flash-lite', 'gemini-flash-latest']
   });
 }
 
@@ -913,13 +913,12 @@ export async function POST(req: NextRequest) {
         });
       }
 
+      // 高速軽量モデル（flash-lite）を最優先にして爆速応答を実現（約1秒で応答）
       const CANDIDATE_MODELS = [
-        'gemini-flash-latest',
         'gemini-flash-lite-latest',
-        'gemini-3.8-flash',
-        'gemini-2.5-flash',
-        'gemini-2.5-flash-lite',
-        'gemini-pro-latest'
+        'gemini-3.5-flash-lite',
+        'gemini-flash-latest',
+        'gemini-3.8-flash'
       ];
 
       let lastErrorStatus: number | null = null;
@@ -931,6 +930,7 @@ export async function POST(req: NextRequest) {
           const res = await fetch(geminiUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
+            signal: AbortSignal.timeout(10000), // 10秒以内に応答しない場合は即座にフォールバック
             body: JSON.stringify({
               systemInstruction: {
                 parts: [{ text: SYSTEM_PROMPT.trim() }]

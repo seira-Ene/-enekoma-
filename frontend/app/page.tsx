@@ -906,11 +906,12 @@ export default function UnifiedAssistantPage() {
 
       if (cleanedKey) {
         try {
-          const directRes = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${cleanedKey}`,
+          let directRes = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-lite-latest:generateContent?key=${cleanedKey}`,
             {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
+              signal: AbortSignal.timeout(10000),
               body: JSON.stringify({
                 systemInstruction: {
                   parts: [{ text: 'あなたは日本大学文理学部（CHS）公式アシスタント「EneKoma」です。時間割表やファイルを受け取った場合は科目を読み取り、必ず末尾に ```profile_update JSONコードブロックを出力してください。' }]
@@ -927,10 +928,27 @@ export default function UnifiedAssistantPage() {
                     }] : [])
                   ]
                 }],
-                generationConfig: { temperature: 0.3, maxOutputTokens: 2048 }
+                generationConfig: { temperature: 0.2, maxOutputTokens: 8192 }
               })
             }
           );
+          if (!directRes.ok) {
+            directRes = await fetch(
+              `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${cleanedKey}`,
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                signal: AbortSignal.timeout(10000),
+                body: JSON.stringify({
+                  systemInstruction: {
+                    parts: [{ text: 'あなたは日本大学文理学部（CHS）公式アシスタント「EneKoma」です。' }]
+                  },
+                  contents: [{ role: 'user', parts: [{ text }] }],
+                  generationConfig: { temperature: 0.2, maxOutputTokens: 8192 }
+                })
+              }
+            );
+          }
           if (directRes.ok) {
             const directData = await directRes.json();
             const candText = directData?.candidates?.[0]?.content?.parts?.[0]?.text;
@@ -1075,14 +1093,15 @@ export default function UnifiedAssistantPage() {
       errorMessage = e?.message || 'サーバー未接続';
     }
 
-    // 2. サーバー側でエラーだった場合、ブラウザからGoogle APIへ直接テスト
+    // 2. サーバー側でエラーだった場合、ブラウザからGoogle APIへ直接テスト（高速flash-liteモデルを使用）
     if (!testSucceeded && keyToTest) {
       try {
         let directRes = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${keyToTest}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-lite-latest:generateContent?key=${keyToTest}`,
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
+            signal: AbortSignal.timeout(6000),
             body: JSON.stringify({
               contents: [{ role: 'user', parts: [{ text: '日大文理' }] }]
             })
@@ -1090,10 +1109,11 @@ export default function UnifiedAssistantPage() {
         );
         if (!directRes.ok) {
           directRes = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${keyToTest}`,
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${keyToTest}`,
             {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
+              signal: AbortSignal.timeout(6000),
               body: JSON.stringify({
                 contents: [{ role: 'user', parts: [{ text: '日大文理' }] }]
               })
@@ -1102,7 +1122,7 @@ export default function UnifiedAssistantPage() {
         }
         if (directRes.ok) {
           testSucceeded = true;
-          replyModel = 'gemini-3.8-flash';
+          replyModel = 'gemini-flash-lite-latest';
         } else {
           const errData = await directRes.json().catch(() => ({}));
           const googleMsg = errData?.error?.message || `HTTP ${directRes.status}`;
