@@ -845,13 +845,33 @@ export async function POST(req: NextRequest) {
 
       if (image && image.data) {
         const cleanBase64 = image.data.replace(/^data:[^;]+;base64,/, '');
-        // Google Gemini REST API standard is inlineData (camelCase)
-        currentTurnParts.push({
-          inlineData: {
-            mimeType: image.mimeType || 'image/jpeg',
-            data: cleanBase64
+        const rawMime = (image.mimeType || '').toLowerCase();
+
+        // CSVやテキストファイルの場合、base64をUTF-8文字列として復元してプロンプト本文に付加
+        if (rawMime.includes('csv') || rawMime.includes('text') || rawMime.includes('plain')) {
+          try {
+            const decodedText = Buffer.from(cleanBase64, 'base64').toString('utf-8');
+            currentTurnParts.push({
+              text: `\n\n【添付ファイル内容（テキスト/CSV形式）】\n\`\`\`\n${decodedText}\n\`\`\``
+            });
+          } catch (e) {
+            currentTurnParts.push({
+              inlineData: { mimeType: 'text/plain', data: cleanBase64 }
+            });
           }
-        });
+        } else {
+          // 画像またはPDF
+          let validMime = image.mimeType || 'image/jpeg';
+          if (!validMime.startsWith('image/') && validMime !== 'application/pdf') {
+            validMime = 'image/jpeg';
+          }
+          currentTurnParts.push({
+            inlineData: {
+              mimeType: validMime,
+              data: cleanBase64
+            }
+          });
+        }
       }
 
       // Gemini APIは最初のターンが必ずrole: "user"である必要があり、かつ交互（user ➔ model ➔ user）でなければならない
@@ -894,13 +914,12 @@ export async function POST(req: NextRequest) {
       }
 
       const CANDIDATE_MODELS = [
-        'gemini-3.8-flash',
         'gemini-flash-latest',
-        'gemini-3.5-flash',
-        'gemini-3.7-flash',
-        'gemini-3.1-flash-lite',
-        'gemini-2.0-flash',
-        'gemini-1.5-flash'
+        'gemini-flash-lite-latest',
+        'gemini-3.8-flash',
+        'gemini-2.5-flash',
+        'gemini-2.5-flash-lite',
+        'gemini-pro-latest'
       ];
 
       let lastErrorStatus: number | null = null;
@@ -918,15 +937,16 @@ export async function POST(req: NextRequest) {
               },
               contents,
               generationConfig: {
-                temperature: 0.3,
-                maxOutputTokens: 2048
+                temperature: 0.2,
+                maxOutputTokens: 8192
               }
             })
           });
 
           if (res.ok) {
             const data = await res.json();
-            const candidateText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+            const parts = data?.candidates?.[0]?.content?.parts || [];
+            const candidateText = parts.map((p: any) => p.text || '').filter(Boolean).join('\n');
             if (candidateText) {
               const profileUpdate = parseProfileUpdateFromText(candidateText, !!image);
 
@@ -971,18 +991,42 @@ export async function POST(req: NextRequest) {
       }
 
       const localReply = answerLocally(query || (image ? '成績表画像' : ''), userProfile);
+      let fallbackUpdate = parseProfileUpdateFromText(localReply, !!image);
+      if (!fallbackUpdate && image && image.data) {
+        const rawMime = (image.mimeType || '').toLowerCase();
+        if (rawMime.includes('csv') || rawMime.includes('text') || rawMime.includes('plain')) {
+          try {
+            const cleanBase64 = image.data.replace(/^data:[^;]+;base64,/, '');
+            const decoded = Buffer.from(cleanBase64, 'base64').toString('utf-8');
+            fallbackUpdate = parseProfileUpdateFromText(decoded, true);
+          } catch (e) {}
+        }
+      }
       return NextResponse.json({
         reply: `⚠️ 【Gemini API接続エラー: ${friendlyError}】\n画面右上の「⚙️ API設定」からキーをご確認・再入力できます。\n\n（※要覧ナレッジエンジンにより即座に回答します）\n\n${localReply}`,
         source: 'local',
-        error: friendlyError
+        error: friendlyError,
+        profileUpdate: fallbackUpdate
       });
     }
 
     // ローカルエンジンによる即時フォールバック（公式要覧準拠）
     const localReply = answerLocally(query || (image ? '成績表画像' : ''), userProfile);
+    let fallbackUpdate = parseProfileUpdateFromText(localReply, !!image);
+    if (!fallbackUpdate && image && image.data) {
+      const rawMime = (image.mimeType || '').toLowerCase();
+      if (rawMime.includes('csv') || rawMime.includes('text') || rawMime.includes('plain')) {
+        try {
+          const cleanBase64 = image.data.replace(/^data:[^;]+;base64,/, '');
+          const decoded = Buffer.from(cleanBase64, 'base64').toString('utf-8');
+          fallbackUpdate = parseProfileUpdateFromText(decoded, true);
+        } catch (e) {}
+      }
+    }
     return NextResponse.json({
       reply: localReply,
-      source: 'local'
+      source: 'local',
+      profileUpdate: fallbackUpdate
     });
   } catch (error) {
     return NextResponse.json({

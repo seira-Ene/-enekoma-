@@ -175,6 +175,8 @@ export default function UnifiedAssistantPage() {
   const [regTranscriptFile, setRegTranscriptFile] = useState<{ name: string; size: number; mimeType: string; data: string } | null>(null);
   const [isRegistering, setIsRegistering] = useState(false);
   const [regStatusText, setRegStatusText] = useState<string | null>(null);
+  const [isAnalyzingTimetable, setIsAnalyzingTimetable] = useState(false);
+  const [isAnalyzingTranscript, setIsAnalyzingTranscript] = useState(false);
 
   // 空き教室検索ツール（人間が使うための直感的なUI）
   const [showRoomSearchTool, setShowRoomSearchTool] = useState(false);
@@ -528,7 +530,7 @@ export default function UnifiedAssistantPage() {
 
     let mimeType = file.type || 'application/octet-stream';
     const lower = file.name.toLowerCase();
-    if (file.type.startsWith('image/') || /\.(png|jpe?g|webp|gif|bmp)$/i.test(lower)) {
+    if (file.type.startsWith('image/') || /\.(png|jpe?g|webp|gif|bmp|heic|heif)$/i.test(lower)) {
       mimeType = file.type || 'image/jpeg';
     } else if (file.type === 'application/pdf' || lower.endsWith('.pdf')) {
       mimeType = 'application/pdf';
@@ -550,6 +552,85 @@ export default function UnifiedAssistantPage() {
         setRegTimetableFile(item);
       } else {
         setRegTranscriptFile(item);
+      }
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  // 学生履修プロフィールモーダル内からの直接ファイル添付・AI一括読み込み
+  const handleProfileFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, target: 'timetable' | 'transcript') => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const isTimetable = target === 'timetable';
+    if (isTimetable) setIsAnalyzingTimetable(true);
+    else setIsAnalyzingTranscript(true);
+
+    setProfileNotification(isTimetable ? '時間割ファイルをAI解析中（履修科目を抽出しています）...' : '成績通知書ファイルをAI解析中（単位・GPA・科目を抽出しています）...');
+
+    let mimeType = file.type || 'application/octet-stream';
+    const lower = file.name.toLowerCase();
+    if (file.type.startsWith('image/') || /\.(png|jpe?g|webp|gif|bmp|heic|heif)$/i.test(lower)) {
+      mimeType = file.type || 'image/jpeg';
+    } else if (file.type === 'application/pdf' || lower.endsWith('.pdf')) {
+      mimeType = 'application/pdf';
+    } else if (file.type.includes('csv') || lower.endsWith('.csv')) {
+      mimeType = 'text/csv';
+    } else if (file.type.includes('text') || lower.endsWith('.txt')) {
+      mimeType = 'text/plain';
+    }
+
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const dataUrl = reader.result as string;
+        const res = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            query: isTimetable
+              ? `【学生履修プロフィール：時間割登録】添付ファイル（${file.name}）を解析し、今期履修中科目のenrolledCourses配列のJSONを出力してください。`
+              : `【学生履修プロフィール：成績通知書登録】添付ファイル（${file.name}）を解析し、totalEarnedCredits、currentGpa、completedCourses配列のJSONを出力してください。`,
+            apiKey: apiKey.trim(),
+            image: { mimeType, data: dataUrl },
+            imageType: isTimetable ? 'current_timetable' : 'transcript',
+            userProfile
+          })
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          let update = data.profileUpdate || parseProfileUpdateFromText(data.reply, true);
+
+          // CSV・テキストの直接解析フォールバック
+          if (!update && (mimeType === 'text/csv' || mimeType === 'text/plain')) {
+            try {
+              const b64 = dataUrl.split('base64,')[1];
+              const decoded = atob(b64);
+              update = parseProfileUpdateFromText(decoded, true);
+            } catch (e) {}
+          }
+
+          if (update) {
+            const applied = applyProfileUpdate(update);
+            if (applied) {
+              setProfileNotification(isTimetable ? '✓ 時間割を読み込み、履修中科目・今期単位数を更新しました！' : '✓ 成績通知書を読み込み、修得単位・GPAを更新しました！');
+              setTimeout(() => setProfileNotification(null), 6000);
+            } else {
+              setProfileNotification('⚠️ 解析結果をカルテに反映できませんでした。');
+            }
+          } else {
+            setProfileNotification('⚠️ ファイルから科目を読み取れませんでした。画像や文字が鮮明かご確認ください。');
+          }
+        } else {
+          setProfileNotification('⚠️ 解析サーバーとの通信に失敗しました。');
+        }
+      } catch (err: any) {
+        setProfileNotification(`⚠️ 解析エラー: ${err?.message || '不明なエラー'}`);
+      } finally {
+        if (isTimetable) setIsAnalyzingTimetable(false);
+        else setIsAnalyzingTranscript(false);
       }
     };
     reader.readAsDataURL(file);
@@ -590,7 +671,17 @@ export default function UnifiedAssistantPage() {
           });
           if (res.ok) {
             const data = await res.json();
-            const update = data.profileUpdate || parseProfileUpdateFromText(data.reply, true);
+            let update = data.profileUpdate || parseProfileUpdateFromText(data.reply, true);
+
+            // CSV/テキストファイルのクライアント側即時フォールバック
+            if (!update && (regTimetableFile.mimeType === 'text/csv' || regTimetableFile.mimeType === 'text/plain')) {
+              try {
+                const b64 = regTimetableFile.data.split('base64,')[1];
+                const decoded = atob(b64);
+                update = parseProfileUpdateFromText(decoded, true);
+              } catch (e) {}
+            }
+
             if (update && Array.isArray(update.enrolledCourses) && update.enrolledCourses.length > 0) {
               const validated = update.enrolledCourses.map((c: any) => ({
                 name: String(c.name || '未定科目').trim(),
@@ -626,7 +717,17 @@ export default function UnifiedAssistantPage() {
           });
           if (res.ok) {
             const data = await res.json();
-            const update = data.profileUpdate || parseProfileUpdateFromText(data.reply, true);
+            let update = data.profileUpdate || parseProfileUpdateFromText(data.reply, true);
+
+            // CSV/テキストファイルのクライアント側即時フォールバック
+            if (!update && (regTranscriptFile.mimeType === 'text/csv' || regTranscriptFile.mimeType === 'text/plain')) {
+              try {
+                const b64 = regTranscriptFile.data.split('base64,')[1];
+                const decoded = atob(b64);
+                update = parseProfileUpdateFromText(decoded, true);
+              } catch (e) {}
+            }
+
             if (update) {
               if (update.totalEarnedCredits !== undefined) {
                 initialProfile.currentCredits = Number(update.totalEarnedCredits);
@@ -1682,6 +1783,32 @@ export default function UnifiedAssistantPage() {
                     </div>
                   </div>
 
+                  {/* 時間割ファイル添付・AI一括自動登録 */}
+                  <div className="p-3 bg-indigo-50/70 border border-indigo-200 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                    <div>
+                      <div className="text-xs font-bold text-indigo-950 flex items-center space-x-1.5">
+                        <span>📅</span>
+                        <span>時間割ファイルからAI一括読み込み</span>
+                      </div>
+                      <p className="text-[11px] text-indigo-700">
+                        時間割の画像・PDF・CSVを添付すると、AIが曜日・時限・教室・科目名を自動登録します。
+                      </p>
+                    </div>
+                    <div className="flex-shrink-0">
+                      <label className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-indigo-900 text-white rounded-md text-xs font-semibold hover:bg-indigo-800 cursor-pointer transition shadow-2xs">
+                        <span>📎</span>
+                        <span>{isAnalyzingTimetable ? 'AI解析中...' : '時間割ファイルを添付'}</span>
+                        <input
+                          type="file"
+                          accept="*/*"
+                          disabled={isAnalyzingTimetable}
+                          onChange={(e) => handleProfileFileUpload(e, 'timetable')}
+                          className="hidden"
+                        />
+                      </label>
+                    </div>
+                  </div>
+
                   {/* 登録科目一覧テーブル */}
                   <div className="border border-slate-200 rounded-lg overflow-hidden">
                     <table className="w-full text-xs text-left border-collapse">
@@ -1792,6 +1919,32 @@ export default function UnifiedAssistantPage() {
                       <span className="text-xs font-bold text-slate-800 bg-slate-100 px-2.5 py-1 rounded border border-slate-200">
                         達成率: {Math.min(100, Math.round((userProfile.currentCredits / 124) * 100))}%
                       </span>
+                    </div>
+                  </div>
+
+                  {/* 成績通知書・過去の時間割 添付・AI一括自動登録 */}
+                  <div className="p-3 bg-emerald-50/70 border border-emerald-200 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                    <div>
+                      <div className="text-xs font-bold text-emerald-950 flex items-center space-x-1.5">
+                        <span>📊</span>
+                        <span>成績通知書からAI一括読み込み</span>
+                      </div>
+                      <p className="text-[11px] text-emerald-700">
+                        成績通知書（画像・PDF等）を添付すると、修得単位数・GPA・修得科目を自動で反映します。
+                      </p>
+                    </div>
+                    <div className="flex-shrink-0">
+                      <label className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-emerald-900 text-white rounded-md text-xs font-semibold hover:bg-emerald-800 cursor-pointer transition shadow-2xs">
+                        <span>📎</span>
+                        <span>{isAnalyzingTranscript ? 'AI解析中...' : '成績通知書を添付'}</span>
+                        <input
+                          type="file"
+                          accept="*/*"
+                          disabled={isAnalyzingTranscript}
+                          onChange={(e) => handleProfileFileUpload(e, 'transcript')}
+                          className="hidden"
+                        />
+                      </label>
                     </div>
                   </div>
 

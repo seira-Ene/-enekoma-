@@ -279,43 +279,145 @@ export function registerNewStudent(data: {
   return newAccount;
 }
 
+// JSON文字列のクリーニング・修復ユーティリティ
+function tryCleanAndParseJson(raw: string): any {
+  if (!raw) return null;
+  // コメント削除、末尾カンマ削除
+  let clean = raw
+    .replace(/\/\/.*$/gm, '')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/,\s*([}\]])/g, '$1')
+    .trim();
+
+  // 1. そのままパース
+  try {
+    return JSON.parse(clean);
+  } catch (e) {}
+
+  // 2. 最も外側の { ... } を抽出
+  const braceMatch = clean.match(/\{[\s\S]*\}/);
+  if (braceMatch) {
+    try {
+      const fixed = braceMatch[0].replace(/,\s*([}\]])/g, '$1');
+      return JSON.parse(fixed);
+    } catch (e) {}
+  }
+
+  // 3. トークン上限等で末尾が切れている場合の閉じ括弧自動補完
+  if (clean.includes('{') && !clean.endsWith('}')) {
+    const attempts = [
+      clean + ']}',
+      clean + '"}]}',
+      clean + '}',
+      clean + '"}'
+    ];
+    for (const att of attempts) {
+      try {
+        const fixed = att.replace(/,\s*([}\]])/g, '$1');
+        const parsed = JSON.parse(fixed);
+        if (parsed && typeof parsed === 'object') return parsed;
+      } catch (e) {}
+    }
+  }
+
+  return null;
+}
+
 // テキスト・OCR出力からのプロフィール更新JSON抽出ユーティリティ（クライアント・サーバー両用）
 export function parseProfileUpdateFromText(text: string, isImage: boolean = false): any {
   if (!text) return null;
 
   // 1. ```profile_update ... ```
-  const matchUpdate = text.match(/```(?:profile_update|profileupdate)\s*([\s\S]*?)\s*```/i);
+  const matchUpdate = text.match(/```(?:profile_update|profileupdate)\s*([\s\S]*?)(?:```|$)/i);
   if (matchUpdate) {
-    try {
-      const clean = matchUpdate[1].trim().replace(/^[^{]*(\{[\s\S]*\})[^}]*$/, '$1');
-      return JSON.parse(clean);
-    } catch (e) {}
+    const parsed = tryCleanAndParseJson(matchUpdate[1]);
+    if (parsed && (parsed.enrolledCourses || parsed.action || parsed.addCompletedCourses || parsed.completedCourses || parsed.totalEarnedCredits !== undefined)) {
+      return parsed;
+    }
   }
 
   // 2. ```json ... ``` または ``` ... ``` 内のJSONブロック
-  const codeBlocks = Array.from(text.matchAll(/```(?:json)?\s*([\s\S]*?)\s*```/gi));
+  const codeBlocks = Array.from(text.matchAll(/```(?:json)?\s*([\s\S]*?)(?:```|$)/gi));
   for (const blk of codeBlocks) {
-    try {
-      const clean = blk[1].trim().replace(/^[^{]*(\{[\s\S]*\})[^}]*$/, '$1');
-      const parsed = JSON.parse(clean);
-      if (parsed && (parsed.enrolledCourses || parsed.action || parsed.addCompletedCourses || parsed.completedCourses)) {
-        return parsed;
-      }
-    } catch (e) {}
+    const parsed = tryCleanAndParseJson(blk[1]);
+    if (parsed && (parsed.enrolledCourses || parsed.action || parsed.addCompletedCourses || parsed.completedCourses || parsed.totalEarnedCredits !== undefined)) {
+      return parsed;
+    }
   }
 
   // 3. raw JSON
-  const rawMatch = text.match(/\{[\s\S]*?"(?:enrolledCourses|addCompletedCourses|completedCourses|action)"[\s\S]*?\}/);
+  const rawMatch = text.match(/\{[\s\S]*?"(?:enrolledCourses|addCompletedCourses|completedCourses|action|totalEarnedCredits)"[\s\S]*?\}/);
   if (rawMatch) {
-    try {
-      const parsed = JSON.parse(rawMatch[0]);
-      if (parsed && (parsed.enrolledCourses || parsed.action || parsed.addCompletedCourses || parsed.completedCourses)) {
-        return parsed;
-      }
-    } catch (e) {}
+    const parsed = tryCleanAndParseJson(rawMatch[0]);
+    if (parsed && (parsed.enrolledCourses || parsed.action || parsed.addCompletedCourses || parsed.completedCourses || parsed.totalEarnedCredits !== undefined)) {
+      return parsed;
+    }
   }
 
-  // 4. 画像・ファイル添付時のテキスト行・表解析救済
+  // 4. 成績通知書のテキスト解析救済（単位数、GPA、修得科目の正規表現抽出）
+  const isTranscriptContext = isImage || text.includes('成績') || text.includes('GPA') || text.includes('修得単位') || text.includes('通知書');
+  if (isTranscriptContext) {
+    let extractedCredits: number | undefined = undefined;
+    let extractedGpa: number | undefined = undefined;
+    const completedCourses: any[] = [];
+
+    // 総修得単位の抽出
+    const creditsMatch = text.match(/(?:総修得単位|修得単位数|修得単位合計|修得単位|合計単位|単位合計|卒業要件対象単位)[:：\s]*([0-9]{1,3})\s*(?:単位)?/i)
+      || text.match(/([0-9]{1,3})\s*単位(?:修得|取得|完修)/);
+    if (creditsMatch) {
+      const val = parseInt(creditsMatch[1], 10);
+      if (!isNaN(val) && val >= 0 && val <= 160) {
+        extractedCredits = val;
+      }
+    }
+
+    // GPAの抽出
+    const gpaMatch = text.match(/(?:通算|累積|現在|累積GPA|通算GPA)?GPA[:：\s]*([0-4]\.[0-9]{1,3})/i);
+    if (gpaMatch) {
+      const val = parseFloat(gpaMatch[1]);
+      if (!isNaN(val) && val >= 0 && val <= 4.0) {
+        extractedGpa = Math.round(val * 100) / 100;
+      }
+    }
+
+    // 科目行の抽出 (例: "| 英語1 | 2 | A |" または "- 心理学概論 (S) 2単位" または "線形代数 2単位 A")
+    const lines = text.split('\n');
+    for (const line of lines) {
+      // パターンA: マークダウン表 "| 科目名 | 2 | S/A/B/C |"
+      const tableMatch = line.match(/\|\s*([^\|]+?)\s*\|\s*([1-4])\s*(?:単位)?\s*\|\s*([SABCDsabc]|修得|合格)\s*\|/);
+      if (tableMatch) {
+        const name = tableMatch[1].trim();
+        const cr = parseInt(tableMatch[2], 10);
+        const gr = tableMatch[3].toUpperCase().trim();
+        if (name && !['科目名', '授業名', '---'].includes(name)) {
+          completedCourses.push({ name, credits: cr || 2, grade: gr, year: 1 });
+          continue;
+        }
+      }
+
+      // パターンB: リスト "- 科目名 2単位 (A)" または "・科目名 (S) 2単位"
+      const listMatch = line.match(/^[・\-\*]\s*([^\(（:：\d]+?)(?:[\(（]([SABCDsabc]|修得|合格)[\)）])?\s*([1-4])\s*単位/);
+      if (listMatch) {
+        const name = listMatch[1].trim();
+        const gr = (listMatch[2] || '修得').toUpperCase().trim();
+        const cr = parseInt(listMatch[3], 10) || 2;
+        if (name && name.length >= 2 && !['修得科目', '成績', '単位'].includes(name)) {
+          completedCourses.push({ name, credits: cr, grade: gr, year: 1 });
+        }
+      }
+    }
+
+    if (extractedCredits !== undefined || extractedGpa !== undefined || completedCourses.length > 0) {
+      return {
+        action: 'transcript',
+        totalEarnedCredits: extractedCredits ?? (completedCourses.length > 0 ? completedCourses.reduce((sum, c) => sum + (c.credits || 2), 0) : 30),
+        currentGpa: extractedGpa ?? 2.80,
+        completedCourses
+      };
+    }
+  }
+
+  // 5. 時間割表のテキスト行・表解析救済（曜日・時限・科目名）
   if (isImage || text.includes('限') || text.includes('時間割') || text.includes('履修')) {
     const courses: any[] = [];
     const lines = text.split('\n');
