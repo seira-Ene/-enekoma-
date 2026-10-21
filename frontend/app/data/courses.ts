@@ -5709,40 +5709,31 @@ export function findFreeRooms(
   };
 
   const lines: string[] = [];
-  const curLabel = curriculum === 'reiwa6_or_earlier' ? '（令和6年度以前入学者時間割）' : '（令和7年度以降入学者時間割）';
-  const isSpecified = Boolean(targetDay || targetPeriod);
-  lines.push(`🏫 **【${isSpecified ? `${curDay}曜 ${curPeriod}限の空き教室案内` : '現在の空き教室・自習スポット案内'}】** ${curLabel}`);
-  lines.push(`🕒 **対象日時**: **${curDay}曜日 ${curPeriod}限**（${periodTimeMap[curPeriod] || ''}）`);
-  lines.push(``);
+  const timeDesc = periodTimeMap[curPeriod] ? `（${periodTimeMap[curPeriod]}）` : '';
+  lines.push(`${curDay}曜日の${curPeriod}限${timeDesc}に使える空き教室をお調べしました！`);
+  lines.push('');
 
   if (isLunch) {
-    lines.push(`🍱 **【昼休み（12:10〜13:00）全教室開放ルール】**:`);
-    lines.push(`文理学部では昼休み時間中、授業の入っていない一般講義室が休憩・自習・昼食用に開放されています。`);
-    lines.push(`・飲食後はゴミを必ず各階のゴミ箱へ分別廃棄（または持ち帰り）してください。`);
-    lines.push(`・午後の授業（3限・13:00〜）の受講生が入室してきた際は速やかに席をお譲りください。`);
-    lines.push(``);
+    lines.push('文理学部ではお昼休み時間中（12時10分から13時）、授業の入っていない一般講義室が休憩や昼食、自習用に開放されていますよ。飲食した後のゴミは各階のゴミ箱へ分別して捨てるか持ち帰るようにしてくださいね。また、3限の受講生が入ってきたら席を譲るように配慮しましょう。');
+    lines.push('');
   }
 
   if (targetBuilding) {
     const bldRooms = byBuilding[targetBuilding] || [];
-    lines.push(`📍 **${targetBuilding}の空き教室（全${bldRooms.length}室）**:`);
     if (bldRooms.length > 0) {
-      lines.push(bldRooms.map((r) => `・${getCompactRoomLabel(r)}`).join('\n'));
+      lines.push(`${targetBuilding}では ${bldRooms.slice(0, 10).map(getCompactRoomLabel).join('、')} などが利用できますよ。`);
     } else {
-      lines.push(`現在、${targetBuilding}に空き教室はありません。`);
+      lines.push(`現在、${targetBuilding}には利用できる空き教室がありませんでした。`);
     }
   } else {
-    lines.push(`📍 **号館別 空き教室一覧（利用可能 全${freeRooms.length}室）**:`);
-    lines.push(`・**3号館**（${byBuilding['3号館'].length}室）: ${byBuilding['3号館'].slice(0, 8).map(getCompactRoomLabel).join(', ')}${byBuilding['3号館'].length > 8 ? ' 他' : ''}`);
-    lines.push(`・**4号館**（${byBuilding['4号館'].length}室）: ${byBuilding['4号館'].map(getCompactRoomLabel).join(', ')}`);
-    lines.push(`・**1号館**（${byBuilding['1号館'].length}室）: ${byBuilding['1号館'].slice(0, 6).map(getCompactRoomLabel).join(', ')}${byBuilding['1号館'].length > 6 ? ' 他' : ''}`);
-    lines.push(`・**2号館**（${byBuilding['2号館'].length}室）: ${byBuilding['2号館'].map(getCompactRoomLabel).join(', ')}`);
+    const b3 = byBuilding['3号館'].length > 0 ? `3号館は ${byBuilding['3号館'].slice(0, 5).map(getCompactRoomLabel).join('、')} など、` : '';
+    const b4 = byBuilding['4号館'].length > 0 ? `4号館は ${byBuilding['4号館'].slice(0, 4).map(getCompactRoomLabel).join('、')} など、` : '';
+    const b1 = byBuilding['1号館'].length > 0 ? `1号館は ${byBuilding['1号館'].slice(0, 4).map(getCompactRoomLabel).join('、')} など、` : '';
+    lines.push(`${b3}${b4}${b1}キャンパス全体で合計${freeRooms.length}室が空いていますよ。`);
   }
 
-  lines.push(``);
-  lines.push(`💡 **静かに自習・PC利用したい場合の推奨スポット**:`);
-  lines.push(`・**ラーニング・コモンズ（本館1階）**: 08:00〜18:00（PC・グループ学習・自習可）`);
-  lines.push(`・**文理学部図書館（図書館棟）**: 09:00〜20:00（個人学習席・地下書庫利用可）`);
+  lines.push('');
+  lines.push('もし静かに自習やPC作業をしたいときは、本館1階のラーニングコモンズ（18時まで開館）や図書館（20時まで開館）を利用するのもおすすめです！');
 
   return {
     day: curDay,
@@ -5779,7 +5770,7 @@ export function checkCourseConflicts(courseNames: string[], curriculum?: string)
   });
 
   const conflicts: { day: string; period: number; courses: string[] }[] = [];
-  const lines: string[] = ['📋 **【履修登録 時間割重複（バッティング）チェック】**', ''];
+  const lines: string[] = ['時間割の重複をチェックしてみました！', ''];
 
   let hasConflict = false;
   Object.entries(slotMap).forEach(([slot, list]) => {
@@ -5789,14 +5780,12 @@ export function checkCourseConflicts(courseNames: string[], curriculum?: string)
       const d = m ? m[1] : '月';
       const p = m ? parseInt(m[2], 10) : 1;
       conflicts.push({ day: d, period: p, courses: list });
-      lines.push(`⚠️ **【時間重複あり】 ${slot}**:`);
-      list.forEach((c) => lines.push(`  ❌ ${c}`));
-      lines.push(`  ➔ 同一コマに複数の授業が重複しています。どちらか一方を選択してください。`);
+      lines.push(`${slot} で ${list.join(' と ')} の時間が重なってしまっています。同じコマには1科目しか登録できないので、どちらか一方を選んでみてくださいね。`);
     }
   });
 
   if (!hasConflict) {
-    lines.push(`✅ **重複なし**: 照合した科目間で時間の重なりはありません。このまま登録可能です。`);
+    lines.push(`チェックした科目の中で時間の重複はありませんでした！すべて重ならずに登録できますよ。`);
   }
 
   return {
@@ -5831,28 +5820,21 @@ export function suggestCoursesForFreePeriod(
   });
 
   const lines: string[] = [
-    `🎯 **【${day}曜 ${period}限 空きコマ活用・推奨科目サジェスト】**`,
-    `空いているコマに履修可能なおすすめ科目一覧です（${matches.length}件該当）：`,
+    `${day}曜${period}限の空きコマに履修できるおすすめの科目をピックアップしました！`,
     ''
   ];
 
   if (matches.length > 0) {
-    matches.slice(0, 8).forEach((c) => {
-      const roomLbl = getCompactRoomLabel(c.room);
-      lines.push(`・**${c.name}**（担当：${c.teacher} 先生）`);
-      lines.push(`  区分: ${c.department} | 教室: **${roomLbl}**`);
-    });
+    const listText = matches.slice(0, 5).map((c) => `${c.name}（${c.teacher}先生 / ${getCompactRoomLabel(c.room)} / ${c.department}）`).join('、');
+    lines.push(`たとえば、${listText} などが開講されていますよ。`);
   } else {
-    // 全科目から探す
     const allMatches = db.filter((c) => c.day === day && c.period === period);
-    lines.push(`指定条件の科目が少ないため、該当コマの開講科目を表示します：`);
-    allMatches.slice(0, 6).forEach((c) => {
-      lines.push(`・**${c.name}**（${c.teacher} / ${getCompactRoomLabel(c.room)}）［${c.department}］`);
-    });
+    const listText = allMatches.slice(0, 5).map((c) => `${c.name}（${c.teacher}先生 / ${getCompactRoomLabel(c.room)}）`).join('、');
+    lines.push(`該当コマでは ${listText} などが開講されていますよ。`);
   }
 
   lines.push('');
-  lines.push(`💡 **履修のポイント**: 総合教育科目は人文2・社会2・理学2単位が必修です。空きコマを活用して計画的に修得しましょう。`);
+  lines.push('総合教育科目は人文、社会、理学からそれぞれ2単位ずつ取る必要があるので、空きコマを上手に活用して計画的に進めてみてくださいね。');
   return lines.join('\n');
 }
 
@@ -5869,8 +5851,7 @@ export function proposeAutomaticSchedule(
   const curLabel = curriculum === 'reiwa6_or_earlier' ? '（令和6年度以前入学者・旧カリキュラム）' : '（令和7年度以降入学者・新カリキュラム）';
 
   const lines: string[] = [
-    `📅 **【${department} ${grade}年次 最適履修スケジュール自動提案】** ${curLabel}`,
-    `学部要覧の学科必修科目・基礎科目を優先的にコマへ配置し、空きコマに教養科目を組み込んだ推奨パターンです：`,
+    `${department}の${grade}年次向けに、おすすめの時間割の組み合わせを考えてみました！学科の必修科目を優先して配置しています。`,
     ''
   ];
 
@@ -5887,7 +5868,7 @@ export function proposeAutomaticSchedule(
     if (hit) {
       const slot = `${hit.day}曜${hit.period}限`;
       if (!grid[slot]) {
-        grid[slot] = `📌 **${hit.name}**（${hit.teacher} / ${getCompactRoomLabel(hit.room)}）［必修］`;
+        grid[slot] = `${hit.name}（必修 / ${hit.teacher}先生 / ${getCompactRoomLabel(hit.room)}）`;
       }
     }
   });
@@ -5902,7 +5883,7 @@ export function proposeAutomaticSchedule(
           (c) => c.day === d && c.period === p && (c.department.includes('総合') || c.department.includes('教養'))
         );
         if (sogoHit) {
-          grid[slot] = `🟢 *${sogoHit.name}*（${sogoHit.teacher} / ${getCompactRoomLabel(sogoHit.room)}）［総合］`;
+          grid[slot] = `${sogoHit.name}（総合 / ${sogoHit.teacher}先生 / ${getCompactRoomLabel(sogoHit.room)}）`;
         }
       }
     }
@@ -5910,24 +5891,22 @@ export function proposeAutomaticSchedule(
 
   // 出力生成
   days.forEach((d) => {
-    lines.push(`**■ ${d}曜日**`);
-    let hasClass = false;
+    const dayClasses: string[] = [];
     for (let p = 1; p <= 5; p++) {
       const slot = `${d}曜${p}限`;
       if (grid[slot]) {
-        lines.push(`  ・${p}限: ${grid[slot]}`);
-        hasClass = true;
+        dayClasses.push(`${p}限に${grid[slot]}`);
       }
     }
-    if (!hasClass) {
-      lines.push(`  ・授業設定なし（自習・課題日）`);
+    if (dayClasses.length > 0) {
+      lines.push(`${d}曜日は、${dayClasses.join('、')} を入れています。`);
+    } else {
+      lines.push(`${d}曜日は授業を入れていないので、自習や課題に充てられますよ。`);
     }
   });
 
   lines.push('');
-  lines.push(`✨ **履修上の注意点（要覧 p.35）**:`);
-  lines.push(`・年間履修上限は40単位（CAP制）です。1学期あたり20単位前後を目安に無理のない時間割を組みましょう。`);
-  lines.push(`・上記スケジュールは一例です。選択必修や外国語のクラス指定に合わせて調整してください。`);
+  lines.push('年間の履修上限は40単位なので、1学期あたり20単位前後を目安にして、自分の受講したい科目や外国語のクラス指定に合わせて調整してみてくださいね。');
 
   return lines.join('\n');
 }
@@ -5963,42 +5942,40 @@ export function calculateTransitOptimization(fromRoomRaw: string, toRoomRaw: str
   const to = parseRoom(toRoomRaw);
 
   const lines: string[] = [
-    `🚶 **【教室間移動・10分休み最適化ルート案内】**`,
-    `出発：**${getCompactRoomLabel(from.name)}** ➔ 到着：**${getCompactRoomLabel(to.name)}**`,
+    `${getCompactRoomLabel(from.name)}から${getCompactRoomLabel(to.name)}への移動ですね！`,
     ''
   ];
 
   let estMinutes = 3;
-  let feasibility = '🟢 余裕をもって移動可能';
+  let feasibility = '余裕をもって移動できますよ';
   let routeAdvice = '';
 
   if (from.bld === to.bld) {
     const floorDiff = Math.abs(from.floor - to.floor);
     estMinutes = Math.max(2, floorDiff * 1 + 1);
-    feasibility = '🟢 同一棟内の移動（極めて安全）';
-    routeAdvice = `同じ${from.bld}内の移動です（${from.floor}階 ➔ ${to.floor}階）。休み時間はエレベーター待ちの列が発生しやすいため、**中央階段を利用すると約${estMinutes}分**で速やかに移動できます。`;
+    feasibility = '同じ棟の中なのでスムーズに移動できます';
+    routeAdvice = `同じ${from.bld}内の移動（${from.floor}階から${to.floor}階）です。休み時間はエレベーターが並びやすいので、中央階段を使うと約${estMinutes}分でスムーズに移動できますよ。`;
   } else {
     // 号館間移動
     if ((from.bld === '3号館' && to.bld === '1号館') || (from.bld === '1号館' && to.bld === '3号館')) {
       estMinutes = 5 + (from.floor >= 4 ? 2 : 0);
-      feasibility = estMinutes <= 7 ? '🟢 10分以内で移動可能' : '🟡 早めの移動推奨';
-      routeAdvice = `3号館と1号館は中庭（サクラプロムナード）を挟んで向かい合っています。3号館上層階からの退出時はエレベーターが混雑するため**階段で1階まで降り、中庭通路を抜けて1号館階段へ**向かうルートが最速です（移動目安：約${estMinutes}分）。`;
+      feasibility = estMinutes <= 7 ? '10分以内で十分間に合います' : '少し早めに移動するのが安心です';
+      routeAdvice = `3号館と1号館は中庭（サクラプロムナード）を挟んで向かい合っています。3号館の上層階から降りる時はエレベーターが混むので、階段で1階に降りて中庭通路を抜けるルートが一番早くておすすめです（移動目安：約${estMinutes}分）。`;
     } else if ((from.bld === '4号館' && to.bld === '1号館') || (from.bld === '1号館' && to.bld === '4号館')) {
       estMinutes = 4;
-      routeAdvice = `1号館と4号館は隣接棟です。1階エントランス通路経由で約${estMinutes}分でスムーズに移動できます。4号館の給水所（冷水機1階）での水分補給にもちょうど良いルートです。`;
+      routeAdvice = `1号館と4号館はお隣の建物です。1階のエントランス通路を通って約${estMinutes}分で移動できますよ。4号館1階の給水所で水分補給するのにもちょうど良いルートです。`;
     } else if ((from.bld === '3号館' && to.bld === '4号館') || (from.bld === '4号館' && to.bld === '3号館')) {
       estMinutes = 3;
-      routeAdvice = `3号館と4号館は隣接しており、地上渡り通路で約${estMinutes}分で到着できます。`;
+      routeAdvice = `3号館と4号館は隣接しているので、渡り通路を使って約${estMinutes}分で到着できます。`;
     } else {
       estMinutes = 5;
-      routeAdvice = `${from.bld}から${to.bld}への移動です。屋外通路を歩行して約${estMinutes}分で到着可能です。`;
+      routeAdvice = `${from.bld}から${to.bld}へは、屋外通路を歩いて約${estMinutes}分ほどで到着できますよ。`;
     }
   }
 
-  lines.push(`⏱️ **所要時間目安**: **約${estMinutes}分**（判定: **${feasibility}**）`);
-  lines.push(`🗺️ **おすすめ移動ルート & コツ**:`);
-  lines.push(`・${routeAdvice}`);
-  lines.push(`・**先回り自習テクニック**: 目的地の教室が前のコマで空き教室の場合、休み時間早めに入室して好みの席を確保・自習することができます。`);
+  lines.push(`移動にかかる時間は約${estMinutes}分が目安で、${feasibility}。`);
+  lines.push(routeAdvice);
+  lines.push('もし移動先の教室が前のコマで空いていれば、少し早めに入って好きな席をとっておくのもおすすめです！');
 
   return lines.join('\n');
 }
@@ -6014,8 +5991,7 @@ export function getRoomDailySchedule(roomNumber: string, targetDay?: string, cur
   const cleanRoom = roomNumber.trim().toUpperCase();
 
   const lines: string[] = [
-    `📅 **【${getCompactRoomLabel(cleanRoom)}（${cleanRoom}教室）の利用スケジュール】**`,
-    `曜日：**${curDay}曜日** | カリキュラム：${curriculum === 'reiwa6_or_earlier' ? '令和6年度以前' : '令和7年度以降'}`,
+    `${curDay}曜日の${getCompactRoomLabel(cleanRoom)}（${cleanRoom}教室）の予定を確認しました！`,
     ''
   ];
 
@@ -6028,14 +6004,14 @@ export function getRoomDailySchedule(roomNumber: string, targetDay?: string, cur
 
     if (hits.length > 0) {
       const h = hits[0];
-      lines.push(`・**${p}限 (09:00〜17:50)**: 🔴 **使用中** ➔ 『${h.name}』（担当：${h.teacher} 先生 / ${h.department}）`);
+      lines.push(`${p}限は授業で使用中です（${h.name} / ${h.teacher}先生）。`);
     } else {
-      lines.push(`・**${p}限**: 🟢 **空き教室（自習・利用可能）**`);
+      lines.push(`${p}限は空き教室なので、自習などに利用できますよ。`);
     }
   }
 
   lines.push('');
-  lines.push(`※昼休み（12:10〜13:00）は全教室が休憩・自習用に開放されます。`);
+  lines.push('お昼休み（12時10分から13時）はすべての教室が自習や休憩用に開放されています！');
   return lines.join('\n');
 }
 

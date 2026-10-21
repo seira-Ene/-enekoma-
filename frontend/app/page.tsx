@@ -276,8 +276,8 @@ export default function UnifiedAssistantPage() {
         {
           id: 'welcome',
           sender: 'assistant',
-          text: `日本大学文理学部（CHS）学生ポータル「EneKoma（エネコマ）」へようこそ。\n\n本システムでは、文理学部公式『学部要覧』および開講時間割データに基づいて、以下のサポートを提供しています：\n\n・**曜日・時限別の空き教室検索**：指定したコマ・時間帯に空いている講義室（3号館、4号館、1号館、2号館）を即時案内します。\n・**時間割表・成績表の画像読取（Gemini連携）**：時間割の写真を送ると「今期履修中」または「修得済み」として登録。成績通知書からは修得単位・GPA・評価を読み取ります。\n・**学生アカウント個別管理**：画面右上の「ログイン / 学生登録」から自分専用のアカウントを作成・切り替え可能です。\n・**単位・卒業要件判定**：学科必修科目・コース科目・124単位までの残り状況を公式要覧基準で厳格チェック。\n・**キャンパス設備・構内案内**：4桁教室番号の場所、クレジットカード対応自販機、80円飲料、図書館等の営業時間。\n\n画面上部の検索バーや下の質問ボタンから、知りたい内容をお気軽に入力してください。`,
-          shortLabel: 'EneKomaポータル',
+          text: `文理学部の学生ポータル「EneKoma（エネコマ）」へようこそ！\n\n大学生活や履修登録をサポートする学生アシスタントです。空き教室の検索や時間割の相談、あと何単位で卒業できるかのチェック、目標GPAのシミュレーション、学内の自販機や教室の場所案内など、気になることがあれば何でも気軽に聞いてくださいね。\n\n時間割や成績表の写真・ファイルもそのまま送っていただければ読み取れますよ！画面上部の検索バーや下のボタンから、お気軽に話しかけてみてくださいね。`,
+          shortLabel: '準備完了',
           source: 'local',
           timestamp: new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })
         }
@@ -364,10 +364,10 @@ export default function UnifiedAssistantPage() {
     e.target.value = '';
   };
 
-  // レスポンス整形
+  // レスポンス整形（チャットUI向けに記号や装飾を除去し自然な言葉遣いに）
   const parseResponse = (raw: string) => {
     let shortLabel: string | undefined = undefined;
-    let mainText = raw;
+    let mainText = raw || '';
 
     mainText = mainText.replace(/```profile_update\s*[\s\S]*?```/g, '').trim();
 
@@ -376,6 +376,24 @@ export default function UnifiedAssistantPage() {
       shortLabel = labelMatch[1].trim();
       mainText = mainText.replace(/表示用[：:]\s*[^\n\r]+(\r?\n)?/, '').replace(/詳細案内[：:]\s*/, '').trim();
     }
+
+    // チャット表示向けに記号や太字装飾をクリーンアップ
+    mainText = mainText
+      .replace(/^#{1,6}\s+/gm, '')
+      .replace(/\*\*([^*]+)\*\*/g, '$1')
+      .replace(/\*([^*]+)\*/g, '$1')
+      .replace(/__([^_]+)__/g, '$1')
+      .replace(/【([^】]+)】/g, '$1')
+      .replace(/［([^］]+)］/g, '$1')
+      .replace(/《([^》]+)》/g, '$1')
+      .replace(/〔([^〕]+)〕/g, '$1')
+      .replace(/➔|->|→/g, 'から')
+      .replace(/^[\s\t]*[■◆▲▼🔹★※・•*✓✕❌⭕🟢🔴📍🕒🎓🏫🍱💡⏱️🗺️📌⚠️]+\s*/gm, '')
+      .replace(/^[\s\t]*-\s+/gm, '')
+      .replace(/[■◆▲▼🔹★※•]/g, '')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+
     return { shortLabel, mainText };
   };
 
