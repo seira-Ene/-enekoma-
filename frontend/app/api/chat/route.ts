@@ -39,9 +39,9 @@ const SYSTEM_PROMPT = `
    ・「【】」「《》」「［］」「■」「◆」「▲」「▼」「🔹」「★」「※」「・」「*」などの記号や箇条書きマークを文章中に付けないでください。
    ・太字構文（**〇〇**）や見出し記号（###など）も使用せず、通常の自然な平文で回答してください。
    ・「表示用：」「詳細案内：」「【回答】」などのシステムタグやラベルも一切出力しないでください。
-2. **長文回答の完全防止（最重要：短く簡潔に）**：
-   ・回答は原則2〜4文以内（120〜220文字程度）で短く簡潔にまとめてください。
-   ・不要な長い前置きや解説の重複を避け、質問の答えを端的にチャット口調で返してください。
+2. **長文回答の完全防止（最重要：短く簡潔に・長文回答防止）**：
+   ・回答は原則1〜2文、長くても3文以内（80〜140文字程度）で短く要点だけを返してください。
+   ・長い前置き、不要な背景説明、過度な補足の羅列は一切禁止です。質問に対する直接の答えだけをチャットで返してください。
 3. **必修と選択必修の明確な区別**：
    ・「必修科目」：卒業要件として必ず単位を取らなければならない科目（自主創造の基礎、各学科の指定専門必修など）。
    ・「選択必修科目」：指定されたグループの中から、決められた単位数以上を選んで必ず修得する科目（総合教育科目、外国語科目など）。
@@ -321,10 +321,10 @@ function simulateGpaLocally(currentGpa: number, targetGpa: number, earnedCredits
   const result = simulateGpaEngine(earnedCredits, currentGpa, targetGpa, semesterCredits);
 
   if (!result.isAchievable) {
-    return `現在のGPA ${currentGpa.toFixed(2)} から目標の ${targetGpa.toFixed(2)} について計算してみました！\n\n今期履修中の${result.semesterCredits}単位（約${result.courseCount}科目）ですべてS評価をとっても、計算上は今期だけで目標GPAに届くのが難しい状況です。\n\n${result.explanation}\n\n今期だけでなく、来期以降も含めて継続してSやAの評価を積み重ねていくことで着実に近づけるので、まずは今期の科目を一つずつ確実に取っていきましょう！`;
+    return `現在のGPA ${currentGpa.toFixed(2)} から目標 ${targetGpa.toFixed(2)} には、今期全科目Sでも計算上届きません。来期以降も継続してS・Aを重ねて着実に上げていきましょう！`;
   }
 
-  return `現在のGPA ${currentGpa.toFixed(2)} から目標の ${targetGpa.toFixed(2)} を目指すシミュレーション結果です！\n\n今期履修している${result.semesterCredits}単位（約${result.courseCount}科目）で到達するためには、${result.courseCount}科目のうちS評価を${result.patternA.sCourses}科目（${result.patternA.sCredits}単位）、A評価を${result.patternA.aCourses}科目（${result.patternA.aCredits}単位）以上修得するのが目安になりますよ。\n\n全体平均としては ${result.patternB.avgPointText} ほどが必要で、判定としては${result.patternB.difficulty}です。S評価の科目を多めに狙って頑張ってみてくださいね。学部要覧の計算式をもとに算出しています！`;
+  return `現在のGPA ${currentGpa.toFixed(2)} から目標 ${targetGpa.toFixed(2)} に到達するには、今期${result.courseCount}科目のうちS評価を${result.patternA.sCourses}科目、A評価を${result.patternA.aCourses}科目以上修得するのが目安です！`;
 }
 
 // ローカル履修・不足判定（要覧 p.31-36, 各学科ページ準拠・人間の自然なチャット言葉遣い）

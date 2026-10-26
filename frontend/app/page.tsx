@@ -543,6 +543,20 @@ export default function UnifiedAssistantPage() {
   const handleStudentLogin = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     setAuthError(null);
+
+    // 管理者コードの直接ログイン判定
+    if (loginId.trim() === '@Seira04162525' || loginPassword.trim() === '@Seira04162525') {
+      setIsAdmin(true);
+      sessionStorage.setItem('enekoma_admin_auth', 'true');
+      setShowAuthModal(false);
+      setShowAdminControlModal(true);
+      setLoginId('');
+      setLoginPassword('');
+      setProfileNotification('✓ 管理者コードを確認しました。管理者画面を開きました。');
+      setTimeout(() => setProfileNotification(null), 5000);
+      return;
+    }
+
     if (!loginId.trim()) {
       setAuthError('学籍番号またはIDを入力してください。');
       return;
@@ -918,6 +932,26 @@ export default function UnifiedAssistantPage() {
   // メッセージ送信
   const handleSend = async (queryToSend?: string, overrideImageType?: 'current_timetable' | 'past_timetable' | 'transcript' | 'auto') => {
     const text = (queryToSend ?? inputText).trim();
+
+    // チャット内での管理者コード判定
+    if (text === '@Seira04162525') {
+      setInputText('');
+      setIsAdmin(true);
+      sessionStorage.setItem('enekoma_admin_auth', 'true');
+      setShowAdminControlModal(true);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `admin_${Date.now()}`,
+          sender: 'assistant',
+          text: '管理者コード（@Seira04162525）を確認しました。管理者コントロールパネルを開きました。メンテナンスモードの切り替えや日時設定を行えます。',
+          shortLabel: '管理者認証',
+          source: 'local',
+          timestamp: new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })
+        }
+      ]);
+      return;
+    }
     const currentFile = attachedFile;
     const finalImageType = overrideImageType || currentFile?.imageType || 'auto';
 
@@ -1343,53 +1377,64 @@ export default function UnifiedAssistantPage() {
   return (
     <div className="flex flex-col h-[100dvh] min-h-[100dvh] bg-slate-50 text-slate-800 font-sans antialiased overflow-hidden">
       {/* ========================================================
-          メンテナンス画面（管理者以外に表示）
+          メンテナンス画面（管理者以外に表示・指定文面完全準拠）
       ======================================================== */}
       {maintenanceConfig?.isActive && !isAdmin && (
-        <div className="fixed inset-0 z-50 bg-slate-900/90 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6 sm:p-8 border border-slate-200 text-center animate-in fade-in zoom-in-95 duration-200">
+        <div className="fixed inset-0 z-50 bg-slate-900/95 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6 sm:p-8 border border-slate-200 text-center animate-in fade-in zoom-in-95 duration-200 my-auto">
             <div className="w-16 h-16 bg-amber-100 text-amber-700 rounded-2xl flex items-center justify-center mx-auto mb-4 text-3xl shadow-xs">
               🛠️
             </div>
-            <h2 className="text-xl sm:text-2xl font-bold text-slate-900 mb-2">
+            <h2 className="text-xl sm:text-2xl font-bold text-slate-900 mb-4 tracking-tight">
               ただいまシステムメンテナンス中です
             </h2>
-            <p className="text-xs sm:text-sm text-slate-600 mb-5 leading-relaxed">
-              いつもEneKomaをご利用いただきありがとうございます。<br />
-              {maintenanceConfig.noticeMessage || '現在、新機能の追加および学部要覧・時間割データの更新作業を行っております。'}
-            </p>
 
-            <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-left text-xs sm:text-sm text-slate-700 space-y-2 mb-5">
-              <div className="flex items-start">
-                <span className="font-semibold text-slate-900 w-24 shrink-0">作業予定時間：</span>
-                <span className="text-amber-800 font-bold">
-                  {maintenanceConfig.startDisplay} 〜 {maintenanceConfig.endDisplay}（予定）
-                </span>
+            <div className="text-xs sm:text-sm text-slate-700 space-y-4 mb-6 text-left leading-relaxed">
+              <p>
+                いつもEneKomaをご利用いただきありがとうございます。<br />
+                {maintenanceConfig.noticeMessage || '現在、新機能の追加および学部要覧・時間割データの更新作業を行っております。'}
+              </p>
+
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 space-y-2">
+                <p className="font-semibold text-slate-900">
+                  作業予定時間： <span className="text-amber-800 font-bold">{maintenanceConfig.startDisplay} 〜 {maintenanceConfig.endDisplay}（予定）</span>
+                </p>
+                <p className="font-semibold text-slate-900">
+                  対象サービス： <span className="font-normal text-slate-700">{maintenanceConfig.targetServices}</span>
+                </p>
               </div>
-              <div className="flex items-start">
-                <span className="font-semibold text-slate-900 w-24 shrink-0">対象サービス：</span>
-                <span className="text-slate-700">{maintenanceConfig.targetServices}</span>
+
+              <div className="text-[11px] sm:text-xs text-amber-900 bg-amber-50 border border-amber-200/80 rounded-xl p-3 space-y-1">
+                <p className="font-medium">※作業状況により、終了時刻が前後する場合がございます。</p>
+                <p>急ぎの休講情報や教室変更については、大学公式の「COMITS2」または教務課掲示板をご確認ください。</p>
               </div>
+
+              <p className="text-xs text-slate-500">
+                ご不便をおかけいたしますが、ご理解とご協力をお願い申し上げます。
+              </p>
             </div>
 
-            <div className="text-xs text-slate-600 space-y-1.5 text-left bg-amber-50/80 border border-amber-200 rounded-xl p-3 mb-5 leading-relaxed">
-              <p className="text-amber-900 font-medium">※作業状況により、終了時刻が前後する場合がございます。</p>
-              <p className="text-amber-900">急ぎの休講情報や教室変更については、大学公式の「COMITS2」または教務課掲示板をご確認ください。</p>
-            </div>
-
-            <p className="text-xs text-slate-500 mb-6">
-              ご不便をおかけいたしますが、ご理解とご協力をお願い申し上げます。
-            </p>
-
-            <div className="border-t border-slate-100 pt-4 flex items-center justify-between">
-              <span className="text-[11px] text-slate-400">日本大学文理学部ポータル EneKoma</span>
-              <button
-                type="button"
-                onClick={() => setShowAdminLoginModal(true)}
-                className="text-xs text-slate-400 hover:text-slate-700 underline transition cursor-pointer"
-              >
-                管理者ログイン
-              </button>
+            {/* 管理者コード(@Seira04162525)直接入力エリア */}
+            <div className="border-t border-slate-100 pt-4 mt-2">
+              <div className="text-[11px] text-slate-400 mb-2">管理者はこちらから認証して管理画面を開けます：</div>
+              <form onSubmit={handleAdminLogin} className="flex flex-col sm:flex-row gap-2 items-center justify-center">
+                <input
+                  type="password"
+                  value={adminCodeInput}
+                  onChange={(e) => setAdminCodeInput(e.target.value)}
+                  placeholder="管理者コード (@Seira...)"
+                  className="w-full sm:w-64 px-3.5 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-900 bg-slate-50 focus:bg-white"
+                />
+                <button
+                  type="submit"
+                  className="w-full sm:w-auto px-4 py-2 text-xs bg-slate-900 text-white font-bold rounded-lg hover:bg-slate-800 transition shadow-xs shrink-0 cursor-pointer"
+                >
+                  管理者画面を開く
+                </button>
+              </form>
+              {adminAuthError && (
+                <p className="text-rose-600 text-xs mt-2 font-medium">{adminAuthError}</p>
+              )}
             </div>
           </div>
         </div>
@@ -1508,6 +1553,26 @@ export default function UnifiedAssistantPage() {
           >
             <span className="text-slate-400">🎓</span>
             <span>修得: <strong>{userProfile.currentCredits}</strong> / 124単位</span>
+          </button>
+
+          {/* 管理者ボタン */}
+          <button
+            onClick={() => {
+              if (isAdmin) {
+                setShowAdminControlModal(true);
+              } else {
+                setShowAdminLoginModal(true);
+              }
+            }}
+            className={`flex items-center space-x-1 px-2 py-1.5 rounded-md text-xs font-semibold border transition cursor-pointer ${
+              isAdmin
+                ? 'bg-amber-400 text-slate-900 border-amber-500 shadow-xs'
+                : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-300'
+            }`}
+            title="管理者コントロールパネル（@Seira04162525）"
+          >
+            <span>⚙️</span>
+            <span className="hidden sm:inline">管理設定</span>
           </button>
 
           {/* API連携ステータス */}
@@ -3582,24 +3647,71 @@ export default function UnifiedAssistantPage() {
               </button>
             </div>
 
-            <div className="mt-4 space-y-4 text-xs">
-              {/* メンテナンストグル */}
-              <div className="p-3.5 rounded-lg border bg-slate-50 border-slate-200 flex items-center justify-between">
-                <div>
-                  <div className="font-bold text-slate-900 text-sm">メンテナンスモード</div>
-                  <div className="text-slate-500 text-[11px]">
-                    有効にすると管理者以外のアクセス時にメンテナンス案内が表示されます。
+            <div className="mt-4 space-y-4 text-xs max-h-[80vh] overflow-y-auto pr-1">
+              {/* メンテナンストグルと状態表示 */}
+              <div className={`p-4 rounded-xl border transition ${editMaintActive ? 'bg-rose-50 border-rose-300 text-rose-950' : 'bg-emerald-50 border-emerald-300 text-emerald-950'}`}>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center space-x-2">
+                    <span className="text-lg">{editMaintActive ? '🛠️' : '🟢'}</span>
+                    <span className="font-bold text-sm">
+                      {editMaintActive ? 'メンテナンスモード：有効（実施中）' : 'メンテナンスモード：無効（通常稼働中）'}
+                    </span>
                   </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={editMaintActive}
+                      onChange={(e) => setEditMaintActive(e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-12 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-rose-600"></div>
+                  </label>
                 </div>
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={editMaintActive}
-                    onChange={(e) => setEditMaintActive(e.target.checked)}
-                    className="sr-only peer"
-                  />
-                  <div className="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-rose-600"></div>
-                </label>
+                <p className="text-[11px] leading-relaxed opacity-90">
+                  {editMaintActive
+                    ? '⚠️ 現在、管理者以外がアクセスすると指定のメンテナンス画面が表示され、利用が制限されます。'
+                    : '✓ 現在、すべての学生が通常通り空き教室検索、時間割管理、AIチャットを利用できます。'}
+                </p>
+
+                {/* ワンクリック設定プリセット */}
+                <div className="flex flex-wrap gap-1.5 pt-3 mt-3 border-t border-slate-200/60">
+                  <span className="text-[10px] text-slate-500 self-center mr-1">クイック設定:</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditMaintActive(true);
+                      setEditMaintStart('2026年10月27日(火) 01:00');
+                      setEditMaintEnd('2026年10月27日(火) 06:00');
+                      setEditMaintServices('全機能（空き教室検索、時間割管理、AIチャット、アカウント機能）');
+                      setEditMaintMessage('現在、新機能の追加および学部要覧・時間割データの更新作業を行っております。');
+                    }}
+                    className="px-2 py-1 rounded bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 text-[10px] font-medium"
+                  >
+                    🌙 深夜定期メンテ
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditMaintActive(true);
+                      setEditMaintStart('ただいま実施中');
+                      setEditMaintEnd('本日作業完了まで');
+                      setEditMaintServices('全機能');
+                      setEditMaintMessage('緊急のサーバーメンテナンスおよびデータ更新を行っております。');
+                    }}
+                    className="px-2 py-1 rounded bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 text-[10px] font-medium"
+                  >
+                    🚨 緊急メンテ
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditMaintActive(false);
+                    }}
+                    className="px-2 py-1 rounded bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 text-[10px] font-medium"
+                  >
+                    🟢 通常稼働に戻す
+                  </button>
+                </div>
               </div>
 
               {/* 開始日時 */}
