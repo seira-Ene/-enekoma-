@@ -35,12 +35,15 @@ const SYSTEM_PROMPT = `
    ・「【】」「《》」「［］」「■」「◆」「▲」「▼」「🔹」「★」「※」「・」「*」などの記号や箇条書きマークを文章中に付けないでください。
    ・太字構文（**〇〇**）や見出し記号（###など）も使用せず、通常の自然な平文で回答してください。
    ・「表示用：」「詳細案内：」「【回答】」などのシステムタグやラベルも一切出力しないでください。
-2. **人間がチャットを返しているような自然な語り口**：
-   ・ロボットのような無機質な箇条書きの羅列を禁止します。
-   ・人間がチャットを送る時のように、読みやすい自然な文章（2〜4文程度の段落）で会話してください。
-   ・例：「月曜2限の空き教室ですね！3号館だと3201教室や3304教室が空いていて自習に使えますよ。4号館なら421教室も使えます。静かに集中したい時は本館のラーニングコモンズや図書館もおすすめですよ。」
-3. **正確な要覧情報の伝達**：
-   ・語り口は人間らしく親しみやすくしつつ、回答内容は日本大学文理学部の『学部要覧』と時間割データに厳格に基づき、嘘をつかないでください。
+2. **長文回答の完全防止（最重要：短く簡潔に）**：
+   ・回答は原則2〜4文以内（120〜220文字程度）で短く簡潔にまとめてください。
+   ・不要な長い前置きや解説の重複を避け、質問の答えを端的にチャット口調で返してください。
+3. **必修と選択必修の明確な区別**：
+   ・「必修科目」：卒業要件として必ず単位を取らなければならない科目（自主創造の基礎、各学科の指定専門必修など）。
+   ・「選択必修科目」：指定されたグループの中から、決められた単位数以上を選んで必ず修得する科目（総合教育科目、外国語科目など）。
+   ・質問された際は両者を混同せず、的確に区別して案内してください。
+4. **曜日・時限・教室・教員・授業データの回答**：
+   ・何曜何限の何教室で誰の何という授業（必修/選択必修）が行われているかを聞かれたら、時間割データに基づき「◯曜◯限の◯◯教室は、◯◯先生の『◯◯（必修/選択必修）』が行われていますよ！」と短く返信してください。
 
 ---
 
@@ -359,6 +362,42 @@ function checkRequirementsLocally(profile: UserProfileData): string {
 function answerLocally(query: string, userProfile?: UserProfileData): string {
   const q = query.trim();
   const qLower = q.toLowerCase();
+
+  // 0. 必修と選択必修の違いの質問
+  if (q.includes('必修') && (q.includes('違い') || q.includes('選択必修') || q.includes('何が違う') || q.includes('どう違う'))) {
+    return '必修科目は卒業のために絶対に修得しなければならない科目（自主創造の基礎や専門必修など）で、落とすと卒業できません。選択必修科目は指定されたグループの中から規定単位数以上を選んで必ず修得する科目ですよ。どちらも卒業に関わる重要科目なので、優先して履修してくださいね！';
+  }
+
+  // 0.1 曜日・時限・教室・教員・講義の逆引き検索（チャット式回答）
+  const roomQueryMatch = q.match(/([1-4]\d{2,3}[a-zA-Z]?|8B\d{3}|88\d{3})/i);
+  let dayInQuery: string | undefined = undefined;
+  for (const d of ['月', '火', '水', '木', '金', '土']) {
+    if (q.includes(`${d}曜`) || (q.length <= 15 && q.includes(d))) {
+      dayInQuery = d;
+      break;
+    }
+  }
+  let periodInQuery: number | undefined = undefined;
+  const pmq = q.match(/([1-5])\s*(?:限|コマ)/);
+  if (pmq) periodInQuery = parseInt(pmq[1], 10);
+
+  if (roomQueryMatch && (dayInQuery || periodInQuery || q.includes('授業') || q.includes('誰') || q.includes('何') || q.includes('先生') || q.includes('講義'))) {
+    const rawR = roomQueryMatch[1].toUpperCase().replace('88', '8B');
+    const db = getLectureDatabase(userProfile?.admissionYear);
+    const hits = db.filter((c) => {
+      const roomHit = c.room.toUpperCase().includes(rawR);
+      const dayHit = dayInQuery ? c.day === dayInQuery : true;
+      const periodHit = periodInQuery ? c.period === periodInQuery : true;
+      return roomHit && dayHit && periodHit;
+    });
+
+    if (hits.length > 0) {
+      const h = hits[0];
+      const typeStr = h.type ? `（${h.type}）` : '';
+      const whenStr = h.day && h.period ? `${h.day}曜${h.period}限` : '';
+      return `${whenStr ? `${whenStr}の` : ''}${getCompactRoomLabel(rawR)}は、${h.teacher}先生の『${h.name}${typeStr}』が行われていますよ。${h.department ? `対象は${h.department}です。` : ''}`;
+    }
+  }
 
   // 1. CAP制・年間履修上限についての質問
   if (['上限', 'cap', '何単位まで履修', '年間単位', '履修登録上限', '40単位'].some((k) => qLower.includes(k))) {

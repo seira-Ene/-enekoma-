@@ -51,38 +51,28 @@ export interface UserProfile extends UserProfileData {
 const DEFAULT_PROFILE: UserProfile = {
   admissionYear: 'reiwa7_or_later',
   department: '情報科学科',
-  grade: 2,
-  currentCredits: 42,
-  currentGpa: 2.40,
-  targetGpa: 3.00,
-  semesterCredits: 16,
-  selectedCourses: ['教職コース'],
+  grade: 1,
+  currentCredits: 0,
+  currentGpa: 0.00,
+  targetGpa: 0.00,
+  semesterCredits: 0,
+  selectedCourses: [],
   selectedMinors: [],
-  enrolledCourses: [
-    { name: 'アルゴリズムとデータ構造', day: '月', period: 2, room: '3306', credits: 2, teacher: '大澤 裕' },
-    { name: 'コンピュータシステム', day: '火', period: 3, room: '421', credits: 2, teacher: '北原 鉄朗' },
-    { name: 'データサイエンス概論', day: '水', period: 2, room: '3201', credits: 2, teacher: '谷 聖一' },
-    { name: '情報社会と倫理', day: '木', period: 1, room: '411', credits: 2, teacher: '尾崎 知伸' },
-    { name: '英語3（Reading）', day: '木', period: 3, room: '124', credits: 2, teacher: 'Smith J.' },
-    { name: '総合教育科目（心理学）', day: '金', period: 2, room: '3405', credits: 2, teacher: '共通教育' },
-    { name: '数学演習', day: '金', period: 4, room: '3302', credits: 2, teacher: '数学科兼担' },
-    { name: '教職概論', day: '土', period: 2, room: '131', credits: 2, teacher: '教職センター' }
-  ],
-  completedCourses: [
-    { name: '自主創造の基礎', credits: 2, grade: 'S', year: 1 },
-    { name: '健康・スポーツ教育論', credits: 2, grade: 'A', year: 1 },
-    { name: '健康・スポーツ教育実習1', credits: 1, grade: 'S', year: 1 },
-    { name: '情報リテラシー', credits: 2, grade: 'A', year: 1 },
-    { name: '基礎プログラミング', credits: 2, grade: 'S', year: 1 },
-    { name: '基礎プログラミング演習', credits: 1, grade: 'A', year: 1 },
-    { name: '実践プログラミング', credits: 2, grade: 'B', year: 1 },
-    { name: '実践プログラミング演習', credits: 1, grade: 'A', year: 1 },
-    { name: '線形代数1', credits: 2, grade: 'B', year: 1 },
-    { name: '基礎微分積分1', credits: 2, grade: 'C', year: 1 },
-    { name: 'コンピューティング1', credits: 2, grade: 'A', year: 1 },
-    { name: '離散数学', credits: 2, grade: 'B', year: 1 }
-  ]
+  enrolledCourses: [],
+  completedCourses: []
 };
+
+// メンテナンス設定型
+interface MaintenanceConfig {
+  isActive: boolean;
+  startDateTime: string;
+  endDateTime: string;
+  startDisplay: string;
+  endDisplay: string;
+  targetServices: string;
+  noticeMessage?: string;
+  updatedAt?: string;
+}
 
 const CHS_DEPARTMENTS = Object.keys(GAKUBU_YORAN_DEPARTMENTS);
 
@@ -193,6 +183,20 @@ export default function UnifiedAssistantPage() {
   const [isTestingKey, setIsTestingKey] = useState(false);
   const [keyTestResult, setKeyTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
+  // 管理者およびシステムメンテナンス状態
+  const [maintenanceConfig, setMaintenanceConfig] = useState<MaintenanceConfig | null>(null);
+  const [isAdmin, setIsAdmin] = useState<boolean>(false);
+  const [showAdminLoginModal, setShowAdminLoginModal] = useState<boolean>(false);
+  const [adminCodeInput, setAdminCodeInput] = useState<string>('');
+  const [adminAuthError, setAdminAuthError] = useState<string | null>(null);
+  const [showAdminControlModal, setShowAdminControlModal] = useState<boolean>(false);
+  const [isSavingMaintenance, setIsSavingMaintenance] = useState<boolean>(false);
+  const [editMaintActive, setEditMaintActive] = useState<boolean>(false);
+  const [editMaintStart, setEditMaintStart] = useState<string>('2026年10月27日(火) 01:00');
+  const [editMaintEnd, setEditMaintEnd] = useState<string>('2026年10月27日(火) 06:00');
+  const [editMaintServices, setEditMaintServices] = useState<string>('全機能（空き教室検索、時間割管理、AIチャット、アカウント機能）');
+  const [editMaintMessage, setEditMaintMessage] = useState<string>('現在、新機能の追加および学部要覧・時間割データの更新作業を行っております。');
+
   // 要覧早見表モーダル
   const [showDrawer, setShowDrawer] = useState(false);
   const [drawerTab, setDrawerTab] = useState<'credits' | 'courses' | 'minors' | 'rooms' | 'vending' | 'hours'>('credits');
@@ -226,7 +230,30 @@ export default function UnifiedAssistantPage() {
         })
         .catch(() => {});
 
-      // 1. ログイン中の学生アカウントの読み込み（優先）
+      // 0. 管理者認証状態のセッション復元
+      if (sessionStorage.getItem('enekoma_admin_auth') === 'true') {
+        setIsAdmin(true);
+      }
+
+      // メンテナンス設定の同期取得
+      fetch('/api/admin/maintenance')
+        .then((res) => res.json())
+        .then((data) => {
+          if (data?.maintenance) {
+            setMaintenanceConfig(data.maintenance);
+            setEditMaintActive(!!data.maintenance.isActive);
+            if (data.maintenance.startDisplay) setEditMaintStart(data.maintenance.startDisplay);
+            if (data.maintenance.endDisplay) setEditMaintEnd(data.maintenance.endDisplay);
+            if (data.maintenance.targetServices) setEditMaintServices(data.maintenance.targetServices);
+            if (data.maintenance.noticeMessage) setEditMaintMessage(data.maintenance.noticeMessage);
+          }
+        })
+        .catch(() => {});
+
+      // 永続ログインの持ち越しを完全防止：古いlocalStorageの学籍番号は破棄
+      localStorage.removeItem('enekoma_current_student_id');
+
+      // 1. ログイン中の学生アカウントの読み込み（sessionStorageのみ）
       const loggedStudent = getCurrentStudent();
       if (loggedStudent) {
         setCurrentStudent(loggedStudent);
@@ -241,21 +268,9 @@ export default function UnifiedAssistantPage() {
           return;
         }
       } else {
-        // 2. ゲストモード：localStorageから復元
-        const savedProfile = localStorage.getItem('enekoma_user_profile');
-        if (savedProfile) {
-          try {
-            const parsed = JSON.parse(savedProfile);
-            setUserProfile({
-              ...DEFAULT_PROFILE,
-              ...parsed,
-              enrolledCourses: parsed.enrolledCourses || DEFAULT_PROFILE.enrolledCourses,
-              completedCourses: parsed.completedCourses || DEFAULT_PROFILE.completedCourses
-            });
-          } catch {
-            // ignore
-          }
-        }
+        // 2. ゲストモード：初期状態はすべて0（他人の成績や時間割の自動ログイン混入を防止）
+        setUserProfile(DEFAULT_PROFILE);
+        localStorage.removeItem('enekoma_user_profile');
       }
 
       const savedChat = localStorage.getItem('enekoma_chat_history');
@@ -821,6 +836,84 @@ export default function UnifiedAssistantPage() {
     }
   };
 
+  // 管理者ログイン
+  const handleAdminLogin = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    setAdminAuthError(null);
+    try {
+      const res = await fetch('/api/admin/maintenance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ adminCode: adminCodeInput, action: 'verify' })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.isAdmin) {
+        setAdminAuthError(data.error || '管理者コードが正しくありません。');
+        return;
+      }
+      setIsAdmin(true);
+      sessionStorage.setItem('enekoma_admin_auth', 'true');
+      setShowAdminLoginModal(false);
+      setAdminCodeInput('');
+      if (data.maintenance) {
+        setMaintenanceConfig(data.maintenance);
+        setEditMaintActive(!!data.maintenance.isActive);
+        if (data.maintenance.startDisplay) setEditMaintStart(data.maintenance.startDisplay);
+        if (data.maintenance.endDisplay) setEditMaintEnd(data.maintenance.endDisplay);
+        if (data.maintenance.targetServices) setEditMaintServices(data.maintenance.targetServices);
+        if (data.maintenance.noticeMessage) setEditMaintMessage(data.maintenance.noticeMessage);
+      }
+    } catch {
+      setAdminAuthError('認証通信に失敗しました。');
+    }
+  };
+
+  // 管理者ログアウト
+  const handleAdminLogout = () => {
+    if (confirm('管理者モードを終了しますか？')) {
+      setIsAdmin(false);
+      sessionStorage.removeItem('enekoma_admin_auth');
+      setShowAdminControlModal(false);
+    }
+  };
+
+  // メンテナンス設定保存
+  const handleSaveMaintenance = async () => {
+    setIsSavingMaintenance(true);
+    try {
+      const updatedConfig: MaintenanceConfig = {
+        isActive: editMaintActive,
+        startDateTime: editMaintStart,
+        endDateTime: editMaintEnd,
+        startDisplay: editMaintStart,
+        endDisplay: editMaintEnd,
+        targetServices: editMaintServices,
+        noticeMessage: editMaintMessage
+      };
+      const res = await fetch('/api/admin/maintenance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          adminCode: '@Seira04162525',
+          action: 'update',
+          config: updatedConfig
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.maintenance) {
+        setMaintenanceConfig(data.maintenance);
+        setShowAdminControlModal(false);
+        alert(editMaintActive ? 'メンテナンスモードを【開始（画面表示中）】に設定しました。' : 'メンテナンスモードを【解除（通常稼働）】に設定しました。');
+      } else {
+        alert('更新に失敗しました: ' + (data.error || '不明なエラー'));
+      }
+    } catch {
+      alert('サーバーとの通信に失敗しました。');
+    } finally {
+      setIsSavingMaintenance(false);
+    }
+  };
+
   // メッセージ送信
   const handleSend = async (queryToSend?: string, overrideImageType?: 'current_timetable' | 'past_timetable' | 'transcript' | 'auto') => {
     const text = (queryToSend ?? inputText).trim();
@@ -1247,7 +1340,93 @@ export default function UnifiedAssistantPage() {
   );
 
   return (
-    <div className="flex flex-col h-screen bg-slate-50 text-slate-800 font-sans antialiased">
+    <div className="flex flex-col h-[100dvh] min-h-[100dvh] bg-slate-50 text-slate-800 font-sans antialiased overflow-hidden">
+      {/* ========================================================
+          メンテナンス画面（管理者以外に表示）
+      ======================================================== */}
+      {maintenanceConfig?.isActive && !isAdmin && (
+        <div className="fixed inset-0 z-50 bg-slate-900/90 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6 sm:p-8 border border-slate-200 text-center animate-in fade-in zoom-in-95 duration-200">
+            <div className="w-16 h-16 bg-amber-100 text-amber-700 rounded-2xl flex items-center justify-center mx-auto mb-4 text-3xl shadow-xs">
+              🛠️
+            </div>
+            <h2 className="text-xl sm:text-2xl font-bold text-slate-900 mb-2">
+              ただいまシステムメンテナンス中です
+            </h2>
+            <p className="text-xs sm:text-sm text-slate-600 mb-5 leading-relaxed">
+              いつもEneKomaをご利用いただきありがとうございます。<br />
+              {maintenanceConfig.noticeMessage || '現在、新機能の追加および学部要覧・時間割データの更新作業を行っております。'}
+            </p>
+
+            <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-left text-xs sm:text-sm text-slate-700 space-y-2 mb-5">
+              <div className="flex items-start">
+                <span className="font-semibold text-slate-900 w-24 shrink-0">作業予定時間：</span>
+                <span className="text-amber-800 font-bold">
+                  {maintenanceConfig.startDisplay} 〜 {maintenanceConfig.endDisplay}（予定）
+                </span>
+              </div>
+              <div className="flex items-start">
+                <span className="font-semibold text-slate-900 w-24 shrink-0">対象サービス：</span>
+                <span className="text-slate-700">{maintenanceConfig.targetServices}</span>
+              </div>
+            </div>
+
+            <div className="text-xs text-slate-600 space-y-1.5 text-left bg-amber-50/80 border border-amber-200 rounded-xl p-3 mb-5 leading-relaxed">
+              <p className="text-amber-900 font-medium">※作業状況により、終了時刻が前後する場合がございます。</p>
+              <p className="text-amber-900">急ぎの休講情報や教室変更については、大学公式の「COMITS2」または教務課掲示板をご確認ください。</p>
+            </div>
+
+            <p className="text-xs text-slate-500 mb-6">
+              ご不便をおかけいたしますが、ご理解とご協力をお願い申し上げます。
+            </p>
+
+            <div className="border-t border-slate-100 pt-4 flex items-center justify-between">
+              <span className="text-[11px] text-slate-400">日本大学文理学部ポータル EneKoma</span>
+              <button
+                type="button"
+                onClick={() => setShowAdminLoginModal(true)}
+                className="text-xs text-slate-400 hover:text-slate-700 underline transition cursor-pointer"
+              >
+                管理者ログイン
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================
+          管理者モードバー（管理者認証時のみ表示）
+      ======================================================== */}
+      {isAdmin && (
+        <div className="bg-amber-400 text-slate-900 px-4 py-1.5 text-xs font-semibold flex items-center justify-between border-b border-amber-500 shadow-xs z-40">
+          <div className="flex items-center space-x-2">
+            <span>👑 管理者モード</span>
+            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${maintenanceConfig?.isActive ? 'bg-rose-600 text-white' : 'bg-emerald-700 text-white'}`}>
+              {maintenanceConfig?.isActive ? '🛠️ メンテ中（一般ユーザー遮断）' : '🟢 通常稼働中'}
+            </span>
+            <span className="hidden md:inline font-normal text-slate-900/80 text-[11px]">
+              （一般ユーザーには{maintenanceConfig?.isActive ? 'メンテナンス告知が表示中' : '通常画面が表示中'}）
+            </span>
+          </div>
+          <div className="flex items-center space-x-2">
+            <button
+              type="button"
+              onClick={() => setShowAdminControlModal(true)}
+              className="px-2.5 py-1 bg-white text-slate-900 rounded font-bold hover:bg-slate-100 transition shadow-2xs text-xs cursor-pointer"
+            >
+              ⚙️ メンテナンス設定
+            </button>
+            <button
+              type="button"
+              onClick={handleAdminLogout}
+              className="px-2 py-1 bg-slate-900 text-white rounded font-medium hover:bg-slate-800 transition text-xs cursor-pointer"
+            >
+              ログアウト
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ========================================================
           ヘッダー：落ち着いた大学ポータルデザイン
       ======================================================== */}
@@ -3202,6 +3381,192 @@ export default function UnifiedAssistantPage() {
               >
                 閉じる
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================
+          管理者ログインモーダル
+      ======================================================== */}
+      {showAdminLoginModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-5 border border-slate-200">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <h3 className="font-bold text-slate-900 text-sm flex items-center space-x-1.5">
+                <span>👑</span>
+                <span>管理者認証</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowAdminLoginModal(false);
+                  setAdminAuthError(null);
+                }}
+                className="text-slate-400 hover:text-slate-600 text-sm"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleAdminLogin} className="mt-4 space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">
+                  管理者コード
+                </label>
+                <input
+                  type="password"
+                  value={adminCodeInput}
+                  onChange={(e) => setAdminCodeInput(e.target.value)}
+                  placeholder="管理者コードを入力"
+                  className="w-full px-3 py-2 text-xs border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-slate-900"
+                  autoFocus
+                />
+              </div>
+
+              {adminAuthError && (
+                <div className="p-2 rounded bg-rose-50 border border-rose-200 text-rose-700 text-xs">
+                  {adminAuthError}
+                </div>
+              )}
+
+              <div className="flex justify-end space-x-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowAdminLoginModal(false);
+                    setAdminAuthError(null);
+                  }}
+                  className="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-md transition"
+                >
+                  キャンセル
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-1.5 text-xs bg-slate-900 text-white font-medium rounded-md hover:bg-slate-800 transition"
+                >
+                  認証
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================
+          管理者コントロールパネル（メンテナンス日時・設定）
+      ======================================================== */}
+      {showAdminControlModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full p-5 border border-slate-200">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <h3 className="font-bold text-slate-900 text-sm flex items-center space-x-2">
+                <span>⚙️</span>
+                <span>システムメンテナンス管理設定</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowAdminControlModal(false)}
+                className="text-slate-400 hover:text-slate-600 text-sm"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-4 text-xs">
+              {/* メンテナンストグル */}
+              <div className="p-3.5 rounded-lg border bg-slate-50 border-slate-200 flex items-center justify-between">
+                <div>
+                  <div className="font-bold text-slate-900 text-sm">メンテナンスモード</div>
+                  <div className="text-slate-500 text-[11px]">
+                    有効にすると管理者以外のアクセス時にメンテナンス案内が表示されます。
+                  </div>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={editMaintActive}
+                    onChange={(e) => setEditMaintActive(e.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-rose-600"></div>
+                </label>
+              </div>
+
+              {/* 開始日時 */}
+              <div>
+                <label className="block font-semibold text-slate-800 mb-1">
+                  開始日時表示テキスト（例: 2026年10月27日(火) 01:00）
+                </label>
+                <input
+                  type="text"
+                  value={editMaintStart}
+                  onChange={(e) => setEditMaintStart(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-1 focus:ring-slate-900 text-xs"
+                />
+              </div>
+
+              {/* 終了日時 */}
+              <div>
+                <label className="block font-semibold text-slate-800 mb-1">
+                  終了日時表示テキスト（例: 2026年10月27日(火) 06:00）
+                </label>
+                <input
+                  type="text"
+                  value={editMaintEnd}
+                  onChange={(e) => setEditMaintEnd(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-1 focus:ring-slate-900 text-xs"
+                />
+              </div>
+
+              {/* 対象サービス */}
+              <div>
+                <label className="block font-semibold text-slate-800 mb-1">
+                  対象サービス
+                </label>
+                <input
+                  type="text"
+                  value={editMaintServices}
+                  onChange={(e) => setEditMaintServices(e.target.value)}
+                  placeholder="例: 全機能（空き教室検索、時間割管理、AIチャット、アカウント機能）"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-1 focus:ring-slate-900 text-xs"
+                />
+              </div>
+
+              {/* 告知メッセージ */}
+              <div>
+                <label className="block font-semibold text-slate-800 mb-1">
+                  お知らせメッセージ
+                </label>
+                <textarea
+                  value={editMaintMessage}
+                  onChange={(e) => setEditMaintMessage(e.target.value)}
+                  rows={2}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-1 focus:ring-slate-900 text-xs"
+                />
+              </div>
+
+              <div className="p-2.5 bg-amber-50 rounded-lg border border-amber-200 text-amber-900 text-[11px] leading-relaxed">
+                💡 管理者コード「@Seira04162525」で認証されているため、いつでも設定の切り替えやメンテナンスの解除が可能です。
+              </div>
+
+              <div className="flex justify-end space-x-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setShowAdminControlModal(false)}
+                  className="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-md transition"
+                >
+                  閉じる
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveMaintenance}
+                  disabled={isSavingMaintenance}
+                  className="px-4 py-1.5 text-xs bg-slate-900 text-white font-semibold rounded-md hover:bg-slate-800 transition disabled:opacity-50"
+                >
+                  {isSavingMaintenance ? '保存中...' : '設定を保存して即時反映'}
+                </button>
+              </div>
             </div>
           </div>
         </div>

@@ -1,5 +1,6 @@
 // 日本大学文理学部 講義データベース（検索・ワンタップ登録用）
 import { LECTURE_DATABASE_REIWA6 } from './coursesReiwa6';
+import { VERIFIED_COURSES_DATA, VERIFIED_WEEKLY_ROOM_SCHEDULE } from './verifiedClassroomSchedule';
 
 export interface LectureCourse {
   day: string; // "月", "火", "水", "木", "金", "土", "集中"
@@ -8,6 +9,7 @@ export interface LectureCourse {
   teacher: string;
   room: string;
   department: string;
+  type?: '必修' | '選択必修' | '選択';
   semester?: string;
   grade?: string;
   curriculum?: string;
@@ -5612,10 +5614,23 @@ export const LECTURE_DATABASE: LectureCourse[] = [
 // 講義データベース取得（入学年度・カリキュラム体系連動）
 // =========================================================================
 export function getLectureDatabase(curriculum?: string): LectureCourse[] {
+  const verifiedMapped: LectureCourse[] = VERIFIED_COURSES_DATA.map((c) => ({
+    day: c.day === '集中/その他' ? '集中' : c.day,
+    period: c.period,
+    name: c.title,
+    teacher: c.teacher,
+    room: c.room,
+    department: c.target || c.category,
+    type: c.type,
+    semester: c.term,
+    grade: c.target,
+    curriculum: 'reiwa6_or_earlier'
+  }));
+
   if (curriculum === 'reiwa6_or_earlier') {
-    return LECTURE_DATABASE_REIWA6;
+    return [...verifiedMapped, ...LECTURE_DATABASE_REIWA6];
   }
-  return LECTURE_DATABASE;
+  return [...verifiedMapped, ...LECTURE_DATABASE];
 }
 
 // キャンパス主要講義室マスターリスト
@@ -5691,7 +5706,8 @@ export function findFreeRooms(
     });
   }
 
-  const freeRooms = ALL_CAMPUS_ROOMS.filter((r) => !occupiedSet.has(r));
+  const verifiedSlot = VERIFIED_WEEKLY_ROOM_SCHEDULE[curDay]?.[curPeriod];
+  const freeRooms = verifiedSlot ? verifiedSlot.freeRooms : ALL_CAMPUS_ROOMS.filter((r) => !occupiedSet.has(r));
 
   const byBuilding: { [bld: string]: string[] } = {
     '1号館': freeRooms.filter((r) => r.startsWith('1')),

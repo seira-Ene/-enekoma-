@@ -161,14 +161,18 @@ export function saveStudentAccount(account: StudentAccount): void {
 // 現在ログイン中のアカウントID
 export function getCurrentStudentId(): string | null {
   if (typeof window === 'undefined') return null;
-  return localStorage.getItem(STORAGE_KEY_CURRENT_ID) || null;
+  // セッション単位でのみログインを保持（再アクセス・他者のアクセス時は必ず初期ゲスト状態）
+  return sessionStorage.getItem(STORAGE_KEY_CURRENT_ID) || null;
 }
 
 export function setCurrentStudentId(id: string | null): void {
   if (typeof window === 'undefined') return;
   if (id) {
-    localStorage.setItem(STORAGE_KEY_CURRENT_ID, id);
+    sessionStorage.setItem(STORAGE_KEY_CURRENT_ID, id);
+    // 旧バージョンのlocalStorage永続キーがあれば削除
+    localStorage.removeItem(STORAGE_KEY_CURRENT_ID);
   } else {
+    sessionStorage.removeItem(STORAGE_KEY_CURRENT_ID);
     localStorage.removeItem(STORAGE_KEY_CURRENT_ID);
   }
 }
