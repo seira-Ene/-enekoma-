@@ -1,3 +1,7 @@
+import {
+  VERIFIED_12_DEPARTMENTS_CURRICULUM,
+  getDepartmentCurriculum
+} from '@/app/data/departmentCurriculum';
 import { NextRequest, NextResponse } from 'next/server';
 import {
   GAKUBU_YORAN_DEPARTMENTS,
@@ -362,6 +366,39 @@ function checkRequirementsLocally(profile: UserProfileData): string {
 function answerLocally(query: string, userProfile?: UserProfileData): string {
   const q = query.trim();
   const qLower = q.toLowerCase();
+
+  // 0. 各学科の必修科目・選択必修科目・単位数の完全回答（12学科対応）
+  const depts = [
+    '社会学科', '社会福祉学科', '教育学科', '体育学科', '心理学科',
+    '地理学科', '地球科学科', '数学科', '情報科学科', '物理学科',
+    '生命科学科', '化学科'
+  ];
+  const matchedDept = depts.find((d) => q.includes(d)) || ((q.includes('必修') || q.includes('選択必修')) && userProfile?.department ? userProfile.department : undefined);
+
+  if (matchedDept && (q.includes('必修') || q.includes('科目') || q.includes('単位') || q.includes('卒業') || q.includes('カリキュラム'))) {
+    const info = getDepartmentCurriculum(matchedDept);
+    if (info) {
+      const askCompulsory = q.includes('必修') && !q.includes('選択必修のみ');
+      const askElective = q.includes('選択必修') || q.includes('選択');
+
+      // 必修のみの質問
+      if (askCompulsory && !askElective) {
+        const reqList = info.requiredCourses.map((c) => `${c.name}（${c.credits}単位）`).join('、');
+        return `${matchedDept}の必修科目は${info.requiredSummary}です。具体的には、${reqList}があり、すべて修得する必要がありますよ！`;
+      }
+
+      // 選択必修のみの質問
+      if (askElective && !askCompulsory) {
+        const eleList = info.electiveRequiredCourses.map((c) => `${c.name}（${c.credits}単位）`).join('、');
+        return `${matchedDept}の選択必修科目は${info.electiveSummary}です。対象科目には、${eleList}があり、指定の群から必要な単位数を満たすように選択します！`;
+      }
+
+      // 必修と選択必修の両方、またはカリキュラム全体の質問
+      const reqList = info.requiredCourses.slice(0, 10).map((c) => `${c.name}（${c.credits}単位）`).join('、');
+      const eleList = info.electiveRequiredCourses.slice(0, 8).map((c) => `${c.name}（${c.credits}単位）`).join('、');
+      return `${matchedDept}の専門科目は、必修科目（${info.majorReqCredits}単位）と選択必修科目（${info.majorElectiveCredits}単位）に明確に分かれています。必修科目は${info.requiredSummary}で、${reqList}などすべて修得が必須です。選択必修科目は${info.electiveSummary}で、${eleList}などの指定群から規定単位を選んで修得しますよ！`;
+    }
+  }
 
   // 0. 必修と選択必修の違いの質問
   if (q.includes('必修') && (q.includes('違い') || q.includes('選択必修') || q.includes('何が違う') || q.includes('どう違う'))) {

@@ -1,12 +1,17 @@
+import {
+  VERIFIED_12_DEPARTMENTS_CURRICULUM,
+  DepartmentCurriculumCourse
+} from './departmentCurriculum';
 // 日本大学文理学部（CHS）公式ナレッジベース：『学部要覧（令和7年度 / 2025年度）』
 // 本ファイルは公式『学部要覧』全ページ（履修要綱、共通カリキュラム、全18学科カリキュラム、6コース科目、全24副専攻、各種資格）の完全準拠データです。
 
 export interface RequiredCourseItem {
   name: string;
   credits: number;
-  year: number; // 配当年次 (1〜4)
+  year?: number; // 配当年次 (1〜4)
   semester?: '前期' | '後期' | '通年';
-  category?: '共通必修' | '学科必修' | '選択必修';
+  category?: '必修' | '選択必修' | '共通必修' | '学科必修' | '選択';
+  group?: string; // 例: '入門必修（14単位）', '基本科目（12単位選択必修）', 'A群（18単位以上選択必修）' など
   note?: string;
 }
 
@@ -37,7 +42,8 @@ export interface DepartmentGraduationReq {
   total: number;      // 卒業要件総単位数（全学科 124単位）
   page: number;       // 学部要覧 該当ページ
   prerequisitesNotice: string; // 3年次・4年次進級・卒論/ゼミ着手要件
-  requiredCourses: RequiredCourseItem[]; // 学科ごとの主要必修科目リスト
+  requiredCourses: RequiredCourseItem[]; // 学科ごとの必修科目リスト
+  electiveRequiredCourses?: RequiredCourseItem[]; // 学科ごとの選択必修科目リスト
   electiveCategories?: ElectiveCategory[];
   milestones?: ProgressionMilestone[];
 }
@@ -741,6 +747,37 @@ export const GAKUBU_YORAN_DEPARTMENTS: Record<string, DepartmentGraduationReq> =
 };
 
 // =========================================================================
+
+// =========================================================================
+// 12学科公式カリキュラム（必修・選択必修・単位数完全同期）
+// =========================================================================
+Object.entries(VERIFIED_12_DEPARTMENTS_CURRICULUM).forEach(([deptName, info]) => {
+  if (GAKUBU_YORAN_DEPARTMENTS[deptName]) {
+    GAKUBU_YORAN_DEPARTMENTS[deptName] = {
+      ...GAKUBU_YORAN_DEPARTMENTS[deptName],
+      majorReq: info.majorReqCredits,
+      majorOpt: info.majorElectiveCredits,
+      majorTotal: info.majorReqCredits + info.majorElectiveCredits,
+      requiredCourses: info.requiredCourses.map((c) => ({
+        name: c.name,
+        credits: c.credits,
+        year: c.year || 1,
+        category: '必修' as const,
+        group: c.group,
+        note: c.note
+      })),
+      electiveRequiredCourses: info.electiveRequiredCourses.map((c) => ({
+        name: c.name,
+        credits: c.credits,
+        year: c.year || 2,
+        category: '選択必修' as const,
+        group: c.group,
+        note: c.note
+      }))
+    };
+  }
+});
+
 // 2. 学部要覧 p.35-36「履修科目登録単位数の上限（CAP制）」完全準拠データ
 // =========================================================================
 export const GAKUBU_YORAN_CAP_RULES = {
@@ -1200,9 +1237,13 @@ export interface DeficiencyReport {
   grade: number;
   earnedCredits: number;
   remainingCredits: number;
-  // 優先度1
+  // 優先度1: 必修・選択必修の区別
   missingMajorReqs: RequiredCourseItem[];
   completedMajorReqs: string[];
+  missingElectiveReqs: RequiredCourseItem[];
+  completedElectiveReqs: string[];
+  majorReqCreditsTarget: number;
+  majorElectiveCreditsTarget: number;
   milestonesStatus: { timing: string; condition: string; consequence: string; isWarning: boolean; page: number }[];
   // 優先度2
   coursesAnalysis: { name: string; window: string; page: string; reqCredits: number; note: string }[];
@@ -1228,12 +1269,14 @@ export function analyzeAcademicDeficiency(profile: UserProfileData): DeficiencyR
       .map((c) => c.name.trim())
   );
 
-  // 優先度1: 学科必修科目の未修得チェック
+  // 優先度1: 学科必修科目の未修得チェック（必修と選択必修の完全区別）
   const missingMajorReqs: RequiredCourseItem[] = [];
   const completedMajorReqs: string[] = [];
+  const missingElectiveReqs: RequiredCourseItem[] = [];
+  const completedElectiveReqs: string[] = [];
 
+  // 1. 必修科目（100%修得が必須）
   deptData.requiredCourses.forEach((req) => {
-    // 科目名の一致判定（部分一致または完全一致）
     const isCompleted = Array.from(completedNames).some((name) =>
       name === req.name || name.includes(req.name) || req.name.includes(name)
     );
@@ -1242,6 +1285,19 @@ export function analyzeAcademicDeficiency(profile: UserProfileData): DeficiencyR
       completedMajorReqs.push(req.name);
     } else {
       missingMajorReqs.push(req);
+    }
+  });
+
+  // 2. 選択必修科目（指定群・コースから規定単位の修得が必要）
+  (deptData.electiveRequiredCourses || []).forEach((req) => {
+    const isCompleted = Array.from(completedNames).some((name) =>
+      name === req.name || name.includes(req.name) || req.name.includes(name)
+    );
+
+    if (isCompleted) {
+      completedElectiveReqs.push(req.name);
+    } else {
+      missingElectiveReqs.push(req);
     }
   });
 
@@ -1313,6 +1369,10 @@ export function analyzeAcademicDeficiency(profile: UserProfileData): DeficiencyR
     remainingCredits: remainingTotal,
     missingMajorReqs,
     completedMajorReqs,
+    missingElectiveReqs,
+    completedElectiveReqs,
+    majorReqCreditsTarget: deptData.majorReq,
+    majorElectiveCreditsTarget: deptData.majorOpt,
     milestonesStatus,
     coursesAnalysis,
     minorsAnalysis,

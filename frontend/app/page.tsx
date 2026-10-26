@@ -140,6 +140,7 @@ export default function UnifiedAssistantPage() {
   const [userProfile, setUserProfile] = useState<UserProfile>(DEFAULT_PROFILE);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [profileTab, setProfileTab] = useState<'timetable' | 'completed' | 'reqCourses' | 'basic' | 'courses' | 'minors'>('timetable');
+  const [reqCourseFilter, setReqCourseFilter] = useState<'all' | 'compulsory' | 'elective'>('all');
   const [profileNotification, setProfileNotification] = useState<string | null>(null);
 
   // 学生アカウント管理ステート（個別アカウント対応）
@@ -2221,63 +2222,171 @@ export default function UnifiedAssistantPage() {
                 </div>
               )}
 
-              {/* TAB 3: 必修科目チェックリスト */}
-              {profileTab === 'reqCourses' && (
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between pb-1">
-                    <div>
-                      <h4 className="font-bold text-slate-900 text-xs">
-                        【{liveDeptData.department}】主要必修科目（要覧 p.{liveDeptData.page}）
-                      </h4>
-                      <p className="text-[11px] text-slate-500">
-                        修得済みの科目にチェックを入れると、未修得科目が自動で再計算されます。
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <span className="text-xs font-bold text-slate-800 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
-                        未修得: {liveDeficiency.missingMajorReqs.length}科目
-                      </span>
-                    </div>
-                  </div>
+              {/* TAB 3: 必修・選択必修科目チェックリスト（完全区分・単位数明記） */}
+              {profileTab === 'reqCourses' && (() => {
+                const compulsoryList = liveDeptData.requiredCourses.map((c) => ({ ...c, isElective: false }));
+                const electiveList = (liveDeptData.electiveRequiredCourses || []).map((c) => ({ ...c, isElective: true }));
+                const combinedList = [...compulsoryList, ...electiveList];
+                const displayedList = combinedList.filter((c) => {
+                  if (reqCourseFilter === 'compulsory') return !c.isElective;
+                  if (reqCourseFilter === 'elective') return c.isElective;
+                  return true;
+                });
 
-                  <div className="divide-y divide-slate-100 border border-slate-200 rounded-lg overflow-hidden max-h-80 overflow-y-auto">
-                    {liveDeptData.requiredCourses.map((req) => {
-                      const isCompleted = userProfile.completedCourses.some((c) => c.name === req.name);
-                      return (
-                        <label
-                          key={req.name}
-                          className={`flex items-start justify-between p-2.5 cursor-pointer transition ${
-                            isCompleted ? 'bg-slate-50' : 'bg-white hover:bg-slate-50'
+                return (
+                  <div className="space-y-3">
+                    {/* 学科名と要件サマリー */}
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between pb-1 gap-2 border-b border-slate-100">
+                      <div>
+                        <h4 className="font-bold text-slate-900 text-xs flex items-center space-x-1.5">
+                          <span>🎓</span>
+                          <span>【{liveDeptData.department}】必修・選択必修カリキュラム</span>
+                          <span className="text-[10px] text-slate-400 font-normal">（要覧 p.{liveDeptData.page}）</span>
+                        </h4>
+                        <p className="text-[11px] text-slate-500 mt-0.5">
+                          必修科目（100%修得必須）と選択必修科目（規定群から選択修得）を明確に区分しています。
+                        </p>
+                      </div>
+                      <div className="flex items-center space-x-1.5 text-[11px] shrink-0">
+                        <span className="px-2 py-0.5 rounded font-bold bg-slate-900 text-white">
+                          必修: {liveDeptData.majorReq}単位
+                        </span>
+                        <span className="px-2 py-0.5 rounded font-bold bg-amber-100 text-amber-900 border border-amber-300">
+                          選択必修: {liveDeptData.majorOpt}単位
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* フィルター切り替えタブ */}
+                    <div className="flex items-center justify-between">
+                      <div className="flex space-x-1 bg-slate-100 p-0.5 rounded-lg text-xs">
+                        <button
+                          type="button"
+                          onClick={() => setReqCourseFilter('all')}
+                          className={`px-2.5 py-1 rounded-md font-medium transition ${
+                            reqCourseFilter === 'all'
+                              ? 'bg-white text-slate-900 shadow-2xs font-semibold'
+                              : 'text-slate-600 hover:text-slate-900'
                           }`}
                         >
-                          <div className="flex items-start space-x-2.5">
-                            <input
-                              type="checkbox"
-                              checked={isCompleted}
-                              onChange={() => toggleCourseCompleted(req.name, req.credits, req.year)}
-                              className="mt-0.5 rounded text-slate-800 focus:ring-slate-500"
-                            />
-                            <div>
-                              <div className={`font-semibold text-xs ${isCompleted ? 'text-slate-400 line-through' : 'text-slate-900'}`}>
-                                {req.name}
+                          すべて ({combinedList.length})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setReqCourseFilter('compulsory')}
+                          className={`px-2.5 py-1 rounded-md font-medium transition flex items-center space-x-1 ${
+                            reqCourseFilter === 'compulsory'
+                              ? 'bg-white text-slate-900 shadow-2xs font-semibold'
+                              : 'text-slate-600 hover:text-slate-900'
+                          }`}
+                        >
+                          <span>必修 ({compulsoryList.length})</span>
+                          {liveDeficiency.missingMajorReqs.length > 0 && (
+                            <span className="text-[10px] px-1 rounded-full bg-rose-600 text-white">
+                              未修得{liveDeficiency.missingMajorReqs.length}
+                            </span>
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setReqCourseFilter('elective')}
+                          className={`px-2.5 py-1 rounded-md font-medium transition ${
+                            reqCourseFilter === 'elective'
+                              ? 'bg-white text-slate-900 shadow-2xs font-semibold'
+                              : 'text-slate-600 hover:text-slate-900'
+                          }`}
+                        >
+                          選択必修 ({electiveList.length})
+                        </button>
+                      </div>
+
+                      <div className="text-[11px] text-slate-500 hidden sm:block">
+                        未修得必修: <strong className="text-rose-600">{liveDeficiency.missingMajorReqs.length}科目</strong>
+                      </div>
+                    </div>
+
+                    {/* 科目一覧リスト */}
+                    <div className="divide-y divide-slate-100 border border-slate-200 rounded-lg overflow-hidden max-h-80 overflow-y-auto">
+                      {displayedList.length === 0 ? (
+                        <div className="p-4 text-center text-xs text-slate-400">該当する科目がありません</div>
+                      ) : (
+                        displayedList.map((req) => {
+                          const isCompleted = userProfile.completedCourses.some((c) => c.name === req.name);
+                          return (
+                            <label
+                              key={req.name + req.group}
+                              className={`flex items-start justify-between p-2.5 cursor-pointer transition ${
+                                isCompleted ? 'bg-slate-50/70' : 'bg-white hover:bg-slate-50'
+                              }`}
+                            >
+                              <div className="flex items-start space-x-2.5">
+                                <input
+                                  type="checkbox"
+                                  checked={isCompleted}
+                                  onChange={() => toggleCourseCompleted(req.name, req.credits, req.year || 1)}
+                                  className="mt-0.5 rounded text-slate-800 focus:ring-slate-500"
+                                />
+                                <div>
+                                  <div className="flex items-center space-x-1.5">
+                                    <span
+                                      className={`text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0 ${
+                                        req.isElective
+                                          ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                                          : 'bg-slate-900 text-white'
+                                      }`}
+                                    >
+                                      {req.isElective ? '選択必修' : '必修'}
+                                    </span>
+                                    <span
+                                      className={`font-semibold text-xs ${
+                                        isCompleted ? 'text-slate-400 line-through' : 'text-slate-900'
+                                      }`}
+                                    >
+                                      {req.name}
+                                    </span>
+                                    <span className="text-[11px] font-bold text-slate-700 shrink-0">
+                                      （{req.credits}単位）
+                                    </span>
+                                  </div>
+
+                                  <div className="text-[11px] text-slate-500 mt-0.5 flex flex-wrap items-center gap-1">
+                                    {req.group && (
+                                      <span className="bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded text-[10px]">
+                                        {req.group}
+                                      </span>
+                                    )}
+                                    {req.year && (
+                                      <span className="text-slate-400 text-[10px]">
+                                        {req.year}年配当
+                                      </span>
+                                    )}
+                                    {req.note && (
+                                      <span className="text-amber-700 text-[10px]">
+                                        ※{req.note}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
                               </div>
-                              <div className="text-[11px] text-slate-500">
-                                {req.year}年配当 {req.semester ? `・${req.semester}` : ''} ｜ {req.credits}単位
-                                {req.note ? `（${req.note}）` : ''}
-                              </div>
-                            </div>
-                          </div>
-                          <span className={`text-[10px] font-medium px-2 py-0.5 rounded ${
-                            isCompleted ? 'bg-slate-200 text-slate-700' : 'bg-rose-50 text-rose-700 border border-rose-200'
-                          }`}>
-                            {isCompleted ? '修得済' : '未修得'}
-                          </span>
-                        </label>
-                      );
-                    })}
+                              <span
+                                className={`text-[10px] font-medium px-2 py-0.5 rounded shrink-0 ml-2 ${
+                                  isCompleted
+                                    ? 'bg-slate-200 text-slate-700'
+                                    : req.isElective
+                                    ? 'bg-amber-50 text-amber-800 border border-amber-200'
+                                    : 'bg-rose-50 text-rose-700 border border-rose-200 font-semibold'
+                                }`}
+                              >
+                                {isCompleted ? '修得済' : req.isElective ? '未選択' : '未修得'}
+                              </span>
+                            </label>
+                          );
+                        })
+                      )}
+                    </div>
                   </div>
-                </div>
-              )}
+                );
+              })()}
 
               {/* TAB 4: 基本情報・GPA目標 */}
               {profileTab === 'basic' && (
