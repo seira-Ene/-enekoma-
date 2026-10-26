@@ -2659,7 +2659,7 @@ export default function UnifiedAssistantPage() {
                                 <span className="text-slate-400 text-[10px]">クリックで修得済みに登録</span>
                               </div>
 
-                              <div className="divide-y divide-slate-100 border border-slate-200 rounded-lg max-h-48 overflow-y-auto text-xs">
+                              <div className="divide-y divide-slate-100 border border-slate-200 rounded-lg max-h-80 sm:max-h-96 overflow-y-auto text-xs">
                                 {/* 必修科目 */}
                                 {cDetail.requiredCourses.map((req) => {
                                   const isComp = userProfile.completedCourses.some((x) => x.name === req.name);
@@ -2810,7 +2810,7 @@ export default function UnifiedAssistantPage() {
                           {isChecked && mDetail && (
                             <div className="border-t border-slate-200 bg-white p-3 space-y-2">
                               <div className="text-[11px] font-semibold text-slate-700 flex items-center justify-between">
-                                <span>📋 修了要件科目（{mDetail.description}）</span>
+                                <span>📋 修了要件科目（全 {mDetail.requiredCourses.length + mDetail.electiveRequiredCourses.length} 科目）: {mDetail.description}</span>
                                 <span className="text-slate-400 text-[10px]">クリックで修得済みに登録</span>
                               </div>
 
