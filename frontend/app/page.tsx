@@ -950,7 +950,7 @@ export default function UnifiedAssistantPage() {
         {
           id: `admin_${Date.now()}`,
           sender: 'assistant',
-          text: '管理者コード（@Seira04162525）を確認しました。管理者コントロールパネルを開きました。メンテナンスモードの切り替えや日時設定を行えます。',
+          text: '管理者権限を確認しました。管理者コントロールパネルを開きました。メンテナンスモードの切り替えや日時設定を行えます。',
           shortLabel: '管理者認証',
           source: 'local',
           timestamp: new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })
@@ -1420,7 +1420,7 @@ export default function UnifiedAssistantPage() {
               </p>
             </div>
 
-            {/* 管理者コード(@Seira04162525)直接入力エリア */}
+            {/* 管理者コード直接入力エリア */}
             <div className="border-t border-slate-100 pt-4 mt-2">
               <div className="text-[11px] text-slate-400 mb-2">管理者はこちらから認証して管理画面を開けます：</div>
               <form onSubmit={handleAdminLogin} className="flex flex-col sm:flex-row gap-2 items-center justify-center">
@@ -1428,7 +1428,7 @@ export default function UnifiedAssistantPage() {
                   type="password"
                   value={adminCodeInput}
                   onChange={(e) => setAdminCodeInput(e.target.value)}
-                  placeholder="管理者コード (@Seira...)"
+                  placeholder="管理者認証コードを入力"
                   className="w-full sm:w-64 px-3.5 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-900 bg-slate-50 focus:bg-white"
                 />
                 <button
@@ -1482,27 +1482,31 @@ export default function UnifiedAssistantPage() {
       {/* ========================================================
           ヘッダー：落ち着いた大学ポータルデザイン
       ======================================================== */}
-      <header className="bg-white border-b border-slate-200 px-4 py-2.5 sticky top-0 z-30 flex items-center justify-between shadow-xs">
-        <div className="flex items-center space-x-3">
+      <header className="bg-white border-b border-slate-200 px-2.5 sm:px-4 py-2 sticky top-0 z-30 flex items-center justify-between shadow-xs shrink-0">
+        {/* ヘッダー左側：ロゴ・大学名 */}
+        <div className="flex items-center space-x-2 sm:space-x-3 shrink-0 min-w-0">
           {/* 学章・ポータルアイコン */}
-          <div className="w-9 h-9 rounded-lg bg-slate-900 flex items-center justify-center text-white font-serif font-bold text-sm tracking-widest shadow-xs">
+          <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-lg bg-slate-900 flex items-center justify-center text-white font-serif font-bold text-xs sm:text-sm tracking-wider shadow-xs shrink-0">
             CHS
           </div>
-          <div>
-            <div className="flex items-center space-x-2">
-              <h1 className="text-base font-semibold text-slate-900 tracking-tight">EneKoma</h1>
-              <span className="text-[11px] px-2 py-0.5 rounded font-medium bg-slate-100 text-slate-700 border border-slate-200">
+          <div className="min-w-0">
+            <div className="flex items-center space-x-1.5 sm:space-x-2">
+              <h1 className="text-sm sm:text-base font-bold text-slate-900 tracking-tight whitespace-nowrap shrink-0">EneKoma</h1>
+              <span className="hidden sm:inline-block text-[11px] px-2 py-0.5 rounded font-medium bg-slate-100 text-slate-700 border border-slate-200 whitespace-nowrap shrink-0">
                 日本大学文理学部ポータル
               </span>
+              <span className="sm:hidden text-[10px] px-1.5 py-0.5 rounded font-medium bg-slate-100 text-slate-600 border border-slate-200 whitespace-nowrap shrink-0">
+                文理学部
+              </span>
             </div>
-            <p className="text-[11px] text-slate-500 hidden sm:block">
+            <p className="text-[11px] text-slate-500 hidden md:block truncate">
               時間割・空き教室案内 ｜ 履修要綱・卒業判定 ｜ キャンパス施設
             </p>
           </div>
         </div>
 
         {/* ヘッダー右側：実用的なステータスとナビゲーション */}
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center space-x-1 sm:space-x-2 shrink-0">
           {/* 学生個別アカウント切替・ログインボタン */}
           {currentStudent ? (
             <button
@@ -1510,11 +1514,11 @@ export default function UnifiedAssistantPage() {
                 setAuthTab('info');
                 setShowAuthModal(true);
               }}
-              className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-md text-xs font-semibold bg-slate-900 text-white hover:bg-slate-800 border border-slate-700 transition shadow-xs"
+              className="flex items-center space-x-1.5 px-2 py-1.5 sm:px-2.5 sm:py-1.5 rounded-md text-xs font-semibold bg-slate-900 text-white hover:bg-slate-800 border border-slate-700 transition shadow-xs whitespace-nowrap shrink-0"
               title="学生カルテ・アカウント切替"
             >
-              <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
-              <span>{currentStudent.name}</span>
+              <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0"></span>
+              <span className="max-w-[70px] xs:max-w-[110px] sm:max-w-none truncate">{currentStudent.name}</span>
               <span className="hidden lg:inline text-slate-300 font-normal">
                 ({currentStudent.department.replace('学科', '')} {currentStudent.grade}年)
               </span>
@@ -1525,22 +1529,22 @@ export default function UnifiedAssistantPage() {
                 setAuthTab('login');
                 setShowAuthModal(true);
               }}
-              className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 transition"
+              className="flex items-center space-x-1 px-2 py-1.5 sm:px-2.5 sm:py-1.5 rounded-md text-xs font-medium bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 transition whitespace-nowrap shrink-0"
               title="学生アカウントでログインまたは新規登録"
             >
               <span>🔑</span>
-              <span className="hidden sm:inline">ログイン / 学生登録</span>
-              <span className="sm:hidden">ログイン</span>
+              <span className="hidden sm:inline whitespace-nowrap">ログイン / 登録</span>
+              <span className="sm:hidden whitespace-nowrap font-medium">ログイン</span>
             </button>
           )}
 
-          {/* 今期履修中単位バッジ */}
+          {/* 今期履修中単位バッジ (デスクトップのみ) */}
           <button
             onClick={() => {
               setProfileTab('timetable');
               setShowProfileModal(true);
             }}
-            className="hidden md:flex items-center space-x-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 transition"
+            className="hidden md:flex items-center space-x-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 transition whitespace-nowrap shrink-0"
             title="今期の履修中科目を確認・編集"
           >
             <span className="text-slate-400">📅</span>
@@ -1554,11 +1558,14 @@ export default function UnifiedAssistantPage() {
               setProfileTab('completed');
               setShowProfileModal(true);
             }}
-            className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 transition"
+            className="flex items-center space-x-1 px-1.5 py-1.5 sm:px-2.5 sm:py-1.5 rounded-md text-xs font-medium bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 transition whitespace-nowrap shrink-0"
             title="修得済み単位と卒業要件を確認"
           >
             <span className="text-slate-400">🎓</span>
-            <span>修得: <strong>{userProfile.currentCredits}</strong> / 124単位</span>
+            <span className="hidden sm:inline">修得: <strong>{userProfile.currentCredits}</strong> / 124単位</span>
+            <span className="sm:hidden text-[11px] font-semibold text-slate-800">
+              {userProfile.currentCredits}<span className="text-slate-400 font-normal">/124</span>
+            </span>
           </button>
 
           {/* 管理者ボタン */}
@@ -1570,21 +1577,21 @@ export default function UnifiedAssistantPage() {
                 setShowAdminLoginModal(true);
               }
             }}
-            className={`flex items-center space-x-1 px-2 py-1.5 rounded-md text-xs font-semibold border transition cursor-pointer ${
+            className={`flex items-center space-x-1 w-8 h-8 sm:w-auto sm:px-2 sm:py-1.5 justify-center rounded-md text-xs font-semibold border transition cursor-pointer shrink-0 ${
               isAdmin
                 ? 'bg-amber-400 text-slate-900 border-amber-500 shadow-xs'
-                : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-300'
+                : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200'
             }`}
-            title="管理者コントロールパネル（@Seira04162525）"
+            title="管理者コントロールパネル"
           >
             <span>⚙️</span>
-            <span className="hidden sm:inline">管理設定</span>
+            <span className="hidden sm:inline whitespace-nowrap">管理設定</span>
           </button>
 
-          {/* API連携ステータス */}
+          {/* API連携ステータス (デスクトップのみ) */}
           <button
             onClick={() => setShowApiModal(true)}
-            className={`flex items-center space-x-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md border transition ${
+            className={`hidden sm:flex items-center space-x-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md border transition whitespace-nowrap shrink-0 ${
               apiKey.trim() || hasServerKey
                 ? 'bg-slate-50 text-slate-800 border-slate-300 hover:bg-slate-100'
                 : 'bg-amber-50 text-amber-900 border-amber-300 hover:bg-amber-100'
@@ -1592,13 +1599,13 @@ export default function UnifiedAssistantPage() {
             title="Google Gemini API設定"
           >
             <span className={`w-2 h-2 rounded-full ${apiKey.trim() || hasServerKey ? 'bg-emerald-500' : 'bg-amber-500'}`} />
-            <span className="hidden sm:inline">{apiKey.trim() || hasServerKey ? 'Gemini連携中' : 'API未設定'}</span>
+            <span>{apiKey.trim() || hasServerKey ? 'Gemini連携' : 'API未設定'}</span>
           </button>
 
           {/* プロフィール設定ボタン */}
           <button
             onClick={() => setShowProfileModal(true)}
-            className="p-1.5 text-slate-600 hover:text-slate-900 rounded-md hover:bg-slate-100 border border-transparent hover:border-slate-200 transition"
+            className="w-8 h-8 flex items-center justify-center text-slate-600 hover:text-slate-900 rounded-md hover:bg-slate-100 border border-slate-200 sm:border-transparent transition shrink-0 text-sm"
             title="学生履修プロフィールの編集"
           >
             👤
@@ -1607,16 +1614,16 @@ export default function UnifiedAssistantPage() {
           {/* 要覧早見表 */}
           <button
             onClick={() => setShowDrawer(true)}
-            className="p-1.5 text-slate-600 hover:text-slate-900 rounded-md hover:bg-slate-100 border border-transparent hover:border-slate-200 transition"
+            className="w-8 h-8 flex items-center justify-center text-slate-600 hover:text-slate-900 rounded-md hover:bg-slate-100 border border-slate-200 sm:border-transparent transition shrink-0 text-sm"
             title="学部要覧の早見表を開く"
           >
             📋
           </button>
 
-          {/* 会話履歴クリア */}
+          {/* 会話履歴クリア (デスクトップ) */}
           <button
             onClick={handleClearHistory}
-            className="p-1.5 text-slate-400 hover:text-slate-700 rounded-md hover:bg-slate-100 transition"
+            className="hidden sm:flex w-8 h-8 items-center justify-center text-slate-400 hover:text-slate-700 rounded-md hover:bg-slate-100 transition shrink-0"
             title="チャット履歴を消去"
           >
             🗑️
@@ -1634,21 +1641,22 @@ export default function UnifiedAssistantPage() {
       {/* ========================================================
           空き教室クイック検索ツールバー（人間が使うための直感UI）
       ======================================================== */}
-      <section className="bg-white border-b border-slate-200 px-4 py-2.5">
-        <div className="max-w-4xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-2.5 text-xs">
-          <div className="flex items-center space-x-2">
-            <span className="font-semibold text-slate-900 flex items-center space-x-1">
+      <section className="bg-white border-b border-slate-200 px-2.5 sm:px-4 py-2 shrink-0">
+        <div className="max-w-4xl mx-auto flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+          <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap min-w-0">
+            <span className="font-semibold text-slate-900 flex items-center space-x-1 whitespace-nowrap shrink-0">
               <span>🏫</span>
-              <span>空き教室検索:</span>
+              <span className="whitespace-nowrap font-bold">空き教室検索:</span>
             </span>
+
             {/* 曜日選択 */}
-            <div className="flex items-center space-x-1 bg-slate-100 p-0.5 rounded-md border border-slate-200">
+            <div className="flex items-center space-x-0.5 sm:space-x-1 bg-slate-100 p-0.5 rounded-md border border-slate-200 shrink-0">
               {['月', '火', '水', '木', '金', '土'].map((d) => (
                 <button
                   key={d}
                   onClick={() => setSearchDay(d)}
-                  className={`px-2 py-1 rounded font-medium transition ${
-                    searchDay === d ? 'bg-slate-800 text-white shadow-2xs' : 'text-slate-600 hover:text-slate-900'
+                  className={`w-6 h-6 sm:w-auto sm:px-2 sm:py-1 flex items-center justify-center rounded text-xs font-medium transition shrink-0 ${
+                    searchDay === d ? 'bg-slate-800 text-white shadow-2xs font-bold' : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
                   {d}
@@ -1660,20 +1668,20 @@ export default function UnifiedAssistantPage() {
             <select
               value={searchPeriod}
               onChange={(e) => setSearchPeriod(Number(e.target.value))}
-              className="px-2.5 py-1 bg-white border border-slate-300 rounded-md font-medium text-slate-700"
+              className="px-2 py-1 bg-white border border-slate-300 rounded-md font-medium text-slate-700 text-xs shrink-0"
             >
-              <option value={1}>1限 (09:00〜10:30)</option>
-              <option value={2}>2限 (10:40〜12:10)</option>
-              <option value={3}>3限 (13:00〜14:30)</option>
-              <option value={4}>4限 (14:40〜16:10)</option>
-              <option value={5}>5限 (16:20〜17:50)</option>
+              <option value={1}>1限 (9:00〜)</option>
+              <option value={2}>2限 (10:40〜)</option>
+              <option value={3}>3限 (13:00〜)</option>
+              <option value={4}>4限 (14:40〜)</option>
+              <option value={5}>5限 (16:20〜)</option>
             </select>
 
-            {/* 号館選択 */}
+            {/* 号館選択 (sm以上で表示) */}
             <select
               value={searchBuilding}
               onChange={(e) => setSearchBuilding(e.target.value)}
-              className="px-2.5 py-1 bg-white border border-slate-300 rounded-md font-medium text-slate-700 hidden sm:block"
+              className="px-2.5 py-1 bg-white border border-slate-300 rounded-md font-medium text-slate-700 text-xs hidden sm:block shrink-0"
             >
               <option value="all">全号館</option>
               <option value="3号館">3号館</option>
@@ -1681,16 +1689,15 @@ export default function UnifiedAssistantPage() {
               <option value="1号館">1号館</option>
               <option value="2号館">2号館</option>
             </select>
-          </div>
 
-          <div className="flex items-center space-x-2">
+            {/* 検索実行ボタン */}
             <button
               onClick={handleDirectRoomSearch}
               disabled={isLoading}
-              className="px-3.5 py-1 bg-slate-800 hover:bg-slate-900 text-white rounded-md font-medium transition flex items-center space-x-1 disabled:opacity-50"
+              className="px-3 py-1 bg-slate-800 hover:bg-slate-900 text-white rounded-md font-medium transition flex items-center space-x-1 disabled:opacity-50 whitespace-nowrap shrink-0 ml-auto sm:ml-0 shadow-2xs"
             >
               <span>🔍</span>
-              <span>空き教室を表示</span>
+              <span>表示</span>
             </button>
           </div>
         </div>
@@ -1791,13 +1798,13 @@ export default function UnifiedAssistantPage() {
       {/* ========================================================
           入力ツールバー ＆ クイックサジェスト
       ======================================================== */}
-      <footer className="bg-white border-t border-slate-200 px-4 sm:px-6 py-3 max-w-4xl w-full mx-auto">
+      <footer className="bg-white border-t border-slate-200 px-3 sm:px-6 pt-2 pb-[max(12px,env(safe-area-inset-bottom,16px))] max-w-4xl w-full mx-auto shrink-0 z-20">
         {/* カテゴリフィルターチップ */}
-        <div className="flex items-center space-x-1.5 pb-2 overflow-x-auto no-scrollbar">
-          <span className="text-[11px] font-medium text-slate-400 mr-1 whitespace-nowrap">おすすめ質問:</span>
+        <div className="flex items-center space-x-1.5 pb-1.5 overflow-x-auto no-scrollbar overscroll-x-contain">
+          <span className="text-[11px] font-medium text-slate-400 mr-1 whitespace-nowrap shrink-0">質問例:</span>
           <button
             onClick={() => setActiveChipCategory('all')}
-            className={`text-xs px-2.5 py-1 rounded-md font-medium whitespace-nowrap transition ${
+            className={`text-xs px-2.5 py-0.5 rounded-full font-medium whitespace-nowrap shrink-0 transition ${
               activeChipCategory === 'all' ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
             }`}
           >
@@ -1805,7 +1812,7 @@ export default function UnifiedAssistantPage() {
           </button>
           <button
             onClick={() => setActiveChipCategory('rooms')}
-            className={`text-xs px-2.5 py-1 rounded-md font-medium whitespace-nowrap transition ${
+            className={`text-xs px-2.5 py-0.5 rounded-full font-medium whitespace-nowrap shrink-0 transition ${
               activeChipCategory === 'rooms' ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
             }`}
           >
@@ -1813,7 +1820,7 @@ export default function UnifiedAssistantPage() {
           </button>
           <button
             onClick={() => setActiveChipCategory('timetable')}
-            className={`text-xs px-2.5 py-1 rounded-md font-medium whitespace-nowrap transition ${
+            className={`text-xs px-2.5 py-0.5 rounded-full font-medium whitespace-nowrap shrink-0 transition ${
               activeChipCategory === 'timetable' ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
             }`}
           >
@@ -1821,7 +1828,7 @@ export default function UnifiedAssistantPage() {
           </button>
           <button
             onClick={() => setActiveChipCategory('academic')}
-            className={`text-xs px-2.5 py-1 rounded-md font-medium whitespace-nowrap transition ${
+            className={`text-xs px-2.5 py-0.5 rounded-full font-medium whitespace-nowrap shrink-0 transition ${
               activeChipCategory === 'academic' ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
             }`}
           >
@@ -1829,7 +1836,7 @@ export default function UnifiedAssistantPage() {
           </button>
           <button
             onClick={() => setActiveChipCategory('campus')}
-            className={`text-xs px-2.5 py-1 rounded-md font-medium whitespace-nowrap transition ${
+            className={`text-xs px-2.5 py-0.5 rounded-full font-medium whitespace-nowrap shrink-0 transition ${
               activeChipCategory === 'campus' ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
             }`}
           >
@@ -1838,13 +1845,13 @@ export default function UnifiedAssistantPage() {
         </div>
 
         {/* チップボタン一覧 */}
-        <div className="flex items-center space-x-2 py-1 overflow-x-auto no-scrollbar pb-2">
+        <div className="flex items-center space-x-1.5 py-1 overflow-x-auto no-scrollbar pb-2 overscroll-x-contain">
           {filteredChips.map((chip, idx) => (
             <button
               key={idx}
               onClick={() => handleSend(chip.query)}
               disabled={isLoading}
-              className="text-xs px-3 py-1.5 rounded-md border border-slate-200 bg-slate-50 hover:bg-slate-100 hover:border-slate-300 text-slate-700 whitespace-nowrap transition flex-shrink-0"
+              className="text-xs px-2.5 py-1 rounded-full border border-slate-200 bg-white hover:bg-slate-50 hover:border-slate-300 text-slate-700 whitespace-nowrap shrink-0 transition shadow-2xs"
             >
               {chip.label}
             </button>
@@ -1853,70 +1860,70 @@ export default function UnifiedAssistantPage() {
 
         {/* 添付ファイルプレビュー＆読み取り種別セレクター */}
         {attachedFile && (
-          <div className="mb-2 p-3 bg-slate-50 border border-slate-200 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow-2xs">
-            <div className="flex items-center space-x-3">
+          <div className="mb-2 p-2.5 bg-slate-50 border border-slate-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow-2xs">
+            <div className="flex items-center space-x-2.5 min-w-0">
               {attachedFile.previewUrl ? (
                 /* eslint-disable-next-line @next/next/no-img-element */
-                <img src={attachedFile.previewUrl} alt="添付ファイル" className="w-12 h-12 object-cover rounded border border-slate-300" />
+                <img src={attachedFile.previewUrl} alt="添付ファイル" className="w-10 h-10 object-cover rounded-lg border border-slate-300 shrink-0" />
               ) : (
-                <div className="w-12 h-12 rounded border border-slate-300 bg-white flex flex-col items-center justify-center text-slate-700 shadow-2xs shrink-0">
-                  <span className="text-xl">
+                <div className="w-10 h-10 rounded-lg border border-slate-300 bg-white flex flex-col items-center justify-center text-slate-700 shadow-2xs shrink-0">
+                  <span className="text-lg">
                     {attachedFile.fileType === 'pdf' ? '📄' : attachedFile.fileType === 'csv' ? '📊' : '📁'}
                   </span>
-                  <span className="text-[9px] font-bold uppercase tracking-tight text-slate-500">
+                  <span className="text-[8px] font-bold uppercase tracking-tight text-slate-500">
                     {attachedFile.fileType}
                   </span>
                 </div>
               )}
-              <div>
+              <div className="min-w-0">
                 <div className="text-xs font-semibold text-slate-900 flex items-center space-x-1.5">
-                  <span className="truncate max-w-[200px] sm:max-w-xs">{attachedFile.name}</span>
+                  <span className="truncate max-w-[160px] sm:max-w-xs">{attachedFile.name}</span>
                   <span className="text-[10px] text-slate-400 font-normal shrink-0">
                     ({Math.max(1, Math.round(attachedFile.size / 1024))} KB)
                   </span>
                 </div>
-                <div className="text-[11px] text-slate-500 mt-0.5">解析種別を選択してください：</div>
+                <div className="text-[10px] text-slate-500 mt-0.5">解析種別を選択：</div>
                 {/* 種別切り替えタブ */}
                 <div className="flex flex-wrap gap-1 mt-1">
                   <button
                     type="button"
                     onClick={() => setAttachedFile({ ...attachedFile, imageType: 'current_timetable' })}
-                    className={`text-[11px] px-2 py-0.5 rounded border transition ${
+                    className={`text-[10px] px-2 py-0.5 rounded border transition whitespace-nowrap shrink-0 ${
                       attachedFile.imageType === 'current_timetable'
                         ? 'bg-slate-800 text-white border-slate-800 font-medium'
                         : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
                     }`}
                   >
-                    📅 今期の時間割（履修中に登録）
+                    📅 今期の時間割
                   </button>
                   <button
                     type="button"
                     onClick={() => setAttachedFile({ ...attachedFile, imageType: 'past_timetable' })}
-                    className={`text-[11px] px-2 py-0.5 rounded border transition ${
+                    className={`text-[10px] px-2 py-0.5 rounded border transition whitespace-nowrap shrink-0 ${
                       attachedFile.imageType === 'past_timetable'
                         ? 'bg-slate-800 text-white border-slate-800 font-medium'
                         : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
                     }`}
                   >
-                    📜 過去の時間割（修得済みに追加・評価なし）
+                    📜 過去の時間割
                   </button>
                   <button
                     type="button"
                     onClick={() => setAttachedFile({ ...attachedFile, imageType: 'transcript' })}
-                    className={`text-[11px] px-2 py-0.5 rounded border transition ${
+                    className={`text-[10px] px-2 py-0.5 rounded border transition whitespace-nowrap shrink-0 ${
                       attachedFile.imageType === 'transcript'
                         ? 'bg-slate-800 text-white border-slate-800 font-medium'
                         : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
                     }`}
                   >
-                    📊 成績通知書（GPA・単位・評価）
+                    📊 成績通知書
                   </button>
                 </div>
               </div>
             </div>
             <button
               onClick={() => setAttachedFile(null)}
-              className="self-end sm:self-center text-slate-400 hover:text-slate-700 text-sm px-2 py-1"
+              className="self-end sm:self-center text-slate-400 hover:text-slate-700 text-xs px-2 py-1"
               title="添付を解除"
             >
               ✕ 解除
@@ -1925,8 +1932,8 @@ export default function UnifiedAssistantPage() {
         )}
 
         {/* 入力フォーム */}
-        <div className="flex items-end space-x-2">
-          {/* ファイル添付ボタン（画像・PDF・CSV・文書など全形式対応） */}
+        <div className="flex items-end space-x-2 pt-1">
+          {/* ファイル添付ボタン */}
           <input
             type="file"
             ref={fileInputRef}
@@ -1937,13 +1944,13 @@ export default function UnifiedAssistantPage() {
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            className="p-2.5 rounded-lg border border-slate-300 hover:bg-slate-100 text-slate-600 transition"
+            className="w-10 h-10 flex items-center justify-center rounded-xl border border-slate-300 hover:bg-slate-100 text-slate-600 transition shrink-0 active:scale-95"
             title="時間割表・成績表・PDF・CSV・文書ファイル等を添付"
           >
             📎
           </button>
 
-          {/* テキスト入力エリア */}
+          {/* テキスト入力エリア (iOS Safari自動ズーム防止のためtext-base sm:text-sm) */}
           <div className="flex-1 relative">
             <textarea
               ref={textareaRef}
@@ -1951,8 +1958,8 @@ export default function UnifiedAssistantPage() {
               value={inputText}
               onChange={handleInputTextChange}
               onKeyDown={handleKeyDown}
-              placeholder="質問を入力（例: 月曜2限の空き教室 / 単位足りてる？ / 目標GPA3.0 / 3306教室）"
-              className="w-full resize-none px-3.5 py-2.5 text-sm border border-slate-300 rounded-lg focus:outline-none focus:border-slate-500 focus:ring-1 focus:ring-slate-500 bg-white"
+              placeholder="質問を入力（例: 月曜2限の空き教室 / 単位足りてる？ / 目標GPA3.0）"
+              className="w-full resize-none px-3.5 py-2 text-base sm:text-sm border border-slate-300 rounded-xl focus:outline-none focus:border-slate-500 focus:ring-1 focus:ring-slate-500 bg-white leading-normal shadow-2xs"
             />
           </div>
 
@@ -1960,7 +1967,7 @@ export default function UnifiedAssistantPage() {
           <button
             onClick={() => handleSend()}
             disabled={(!inputText.trim() && !attachedFile) || isLoading}
-            className="px-4 py-2.5 bg-slate-800 hover:bg-slate-900 disabled:bg-slate-300 text-white rounded-lg font-medium text-sm transition flex items-center justify-center shrink-0"
+            className="h-10 px-4 bg-slate-800 hover:bg-slate-900 disabled:bg-slate-300 text-white rounded-xl font-medium text-sm transition flex items-center justify-center shrink-0 active:scale-95"
           >
             送信
           </button>
@@ -3985,7 +3992,7 @@ export default function UnifiedAssistantPage() {
               </div>
 
               <div className="p-2.5 bg-amber-50 rounded-lg border border-amber-200 text-amber-900 text-[11px] leading-relaxed">
-                💡 管理者コード「@Seira04162525」で認証されているため、いつでも設定の切り替えやメンテナンスの解除が可能です。
+                💡 管理者権限で認証されているため、いつでも設定の切り替えやメンテナンスの解除が可能です。
               </div>
 
               <div className="flex justify-end space-x-2 pt-2 border-t border-slate-100">
