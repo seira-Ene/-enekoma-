@@ -1,4 +1,11 @@
 import {
+  VERIFIED_COURSES_CURRICULUM,
+  VERIFIED_MINORS_CURRICULUM,
+  CourseOrMinorItem,
+  CourseCurriculumDef,
+  MinorCurriculumDef
+} from './coursesAndMinorsCurriculum';
+import {
   VERIFIED_12_DEPARTMENTS_CURRICULUM,
   DepartmentCurriculumCourse
 } from './departmentCurriculum';
@@ -1246,8 +1253,29 @@ export interface DeficiencyReport {
   majorElectiveCreditsTarget: number;
   milestonesStatus: { timing: string; condition: string; consequence: string; isWarning: boolean; page: number }[];
   // 優先度2
-  coursesAnalysis: { name: string; window: string; page: string; reqCredits: number; note: string }[];
-  minorsAnalysis: { name: string; page: string; reqCredits: number; isValid: boolean; warning?: string; note: string }[];
+  coursesAnalysis: {
+    name: string;
+    window: string;
+    page: string;
+    reqCredits: number;
+    earnedCredits: number;
+    isFulfilled: boolean;
+    missingCompulsory: CourseOrMinorItem[];
+    completedCompulsory: CourseOrMinorItem[];
+    note: string;
+  }[];
+  minorsAnalysis: {
+    name: string;
+    page: string;
+    reqCredits: number;
+    earnedCredits: number;
+    isValid: boolean;
+    isFulfilled: boolean;
+    warning?: string;
+    missingCompulsory: CourseOrMinorItem[];
+    completedCompulsory: CourseOrMinorItem[];
+    note: string;
+  }[];
   // 優先度3
   zengakuDeficiency: number;
   sogoDeficiency: number;
@@ -1318,38 +1346,97 @@ export function analyzeAcademicDeficiency(profile: UserProfileData): DeficiencyR
     };
   });
 
-  // 優先度2: 選択コース・副専攻チェック
+  // 優先度2: 選択コース・副専攻チェック（必修科目・指定群単位数の完全照合）
   const coursesAnalysis = (profile.selectedCourses || []).map((cName) => {
     const cInfo = GAKUBU_YORAN_COURSES.find((x) => x.name === cName);
+    const cDetail = VERIFIED_COURSES_CURRICULUM[cName];
+    const missingCompulsory: CourseOrMinorItem[] = [];
+    const completedCompulsory: CourseOrMinorItem[] = [];
+    let earnedCourseCredits = 0;
+
+    if (cDetail) {
+      cDetail.requiredCourses.forEach((req) => {
+        const isComp = Array.from(completedNames).some((n) => n === req.name || n.includes(req.name) || req.name.includes(n));
+        if (isComp) {
+          completedCompulsory.push(req);
+          earnedCourseCredits += req.credits;
+        } else {
+          missingCompulsory.push(req);
+        }
+      });
+      cDetail.electiveRequiredCourses.forEach((ele) => {
+        const isComp = Array.from(completedNames).some((n) => n === ele.name || n.includes(ele.name) || ele.name.includes(n));
+        if (isComp) {
+          earnedCourseCredits += ele.credits;
+        }
+      });
+    }
+
+    const targetCredits = cDetail?.requiredCredits || cInfo?.requiredCredits || 26;
+    const isFulfilled = missingCompulsory.length === 0 && earnedCourseCredits >= targetCredits;
+
     return {
       name: cName,
-      window: cInfo?.window || '担当窓口',
-      page: cInfo?.page || 'p.140',
-      reqCredits: cInfo?.requiredCredits || 26,
-      note: cInfo ? `${cInfo.creditsRule} ${cInfo.practicalRequirements || ''}` : '所定のコース科目の履修が必要です。'
+      window: cDetail?.window || cInfo?.window || '担当窓口',
+      page: cDetail?.page || cInfo?.page || 'p.140',
+      reqCredits: targetCredits,
+      earnedCredits: earnedCourseCredits,
+      isFulfilled,
+      missingCompulsory,
+      completedCompulsory,
+      note: cDetail?.description || (cInfo ? `${cInfo.creditsRule} ${cInfo.practicalRequirements || ''}` : '所定のコース科目の履修が必要です。')
     };
   });
 
   const minorsAnalysis = (profile.selectedMinors || []).map((mName) => {
     const mInfo = GAKUBU_YORAN_ALL_24_MINORS.find((x) => x.name === mName);
+    const mDetail = VERIFIED_MINORS_CURRICULUM[mName];
     let isValid = true;
     let warning: string | undefined = undefined;
 
     if (mInfo?.type === 'department' && mInfo.targetDept === dept) {
       isValid = false;
       warning = `⚠️ 所属学科（${dept}）と同一の学科副専攻は修了認定を受けることができません（要覧 p.180）。`;
-    } else if (mInfo?.name === '科学リテラシー副専攻' && ['地理学科', '地球科学科', '数学科', '情報科学科', '物理学科', '生命科学科', '化学科'].includes(dept)) {
+    } else if (mName === '科学リテラシー副専攻' && ['地理学科', '地球科学科', '数学科', '情報科学科', '物理学科', '生命科学科', '化学科'].includes(dept)) {
       isValid = false;
       warning = `⚠️ 理系6学科所属学生は「科学リテラシー副専攻」の修了認定を受けることができません（要覧 p.192）。`;
     }
 
+    const missingCompulsory: CourseOrMinorItem[] = [];
+    const completedCompulsory: CourseOrMinorItem[] = [];
+    let earnedMinorCredits = 0;
+
+    if (mDetail) {
+      mDetail.requiredCourses.forEach((req) => {
+        const isComp = Array.from(completedNames).some((n) => n === req.name || n.includes(req.name) || req.name.includes(n));
+        if (isComp) {
+          completedCompulsory.push(req);
+          earnedMinorCredits += req.credits;
+        } else {
+          missingCompulsory.push(req);
+        }
+      });
+      mDetail.electiveRequiredCourses.forEach((ele) => {
+        const isComp = Array.from(completedNames).some((n) => n === ele.name || n.includes(ele.name) || ele.name.includes(n));
+        if (isComp) {
+          earnedMinorCredits += ele.credits;
+        }
+      });
+    }
+
+    const isFulfilled = isValid && missingCompulsory.length === 0 && earnedMinorCredits >= 16;
+
     return {
       name: mName,
-      page: mInfo?.page || 'p.180',
+      page: mDetail?.page || mInfo?.page || 'p.180',
       reqCredits: 16,
+      earnedCredits: earnedMinorCredits,
       isValid,
+      isFulfilled,
       warning,
-      note: mInfo ? `${mInfo.description} 修了要件：指定科目16単位以上修得。` : '指定科目16単位以上修得で修了証書。'
+      missingCompulsory,
+      completedCompulsory,
+      note: mDetail?.description || (mInfo ? `${mInfo.description} 修了要件：指定科目16単位以上修得。` : '指定科目16単位以上修得で修了証書。')
     };
   });
 

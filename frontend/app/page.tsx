@@ -1,5 +1,11 @@
 'use client';
 
+import {
+  VERIFIED_COURSES_CURRICULUM,
+  VERIFIED_MINORS_CURRICULUM,
+  getCourseCurriculum,
+  getMinorCurriculum
+} from '@/app/data/coursesAndMinorsCurriculum';
 import React, { useState, useEffect, useRef } from 'react';
 import {
   GAKUBU_YORAN_DEPARTMENTS,
@@ -2577,86 +2583,297 @@ export default function UnifiedAssistantPage() {
                 </div>
               )}
 
-              {/* TAB 5: 資格コース選択 */}
+              {/* TAB 5: 資格・専門コース選択＆必修チェック */}
               {profileTab === 'courses' && (
-                <div className="space-y-3">
-                  <div className="text-xs text-slate-600">
-                    履修中のコースを選択してください（複数選択可）。修得単位は原則「自由選択区分」に算入可能です。
+                <div className="space-y-4">
+                  <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 text-xs text-slate-600 leading-relaxed">
+                    履修中のコースにチェックを入れると、<strong>必修科目・選択必修科目の修得状況と不足単位</strong>をリアルタイムに自動判定します。修得済み科目はチェックして進捗を確認できます。
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+
+                  <div className="space-y-3">
                     {GAKUBU_YORAN_COURSES.map((c) => {
                       const isChecked = userProfile.selectedCourses.includes(c.name);
+                      const cDetail = VERIFIED_COURSES_CURRICULUM[c.name];
+                      const analysis = liveDeficiency.coursesAnalysis.find((x) => x.name === c.name);
+
                       return (
-                        <label
+                        <div
                           key={c.name}
-                          className={`flex items-start space-x-2.5 p-3 rounded-lg border cursor-pointer transition ${
+                          className={`rounded-xl border transition overflow-hidden ${
                             isChecked
-                              ? 'bg-slate-100 border-slate-400 text-slate-900 shadow-2xs'
-                              : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                              ? 'bg-slate-50/50 border-slate-400 shadow-2xs'
+                              : 'bg-white border-slate-200 hover:border-slate-300'
                           }`}
                         >
-                          <input
-                            type="checkbox"
-                            checked={isChecked}
-                            onChange={(e) => {
-                              const updated = e.target.checked
-                                ? [...userProfile.selectedCourses, c.name]
-                                : userProfile.selectedCourses.filter((x) => x !== c.name);
-                              saveProfile({ ...userProfile, selectedCourses: updated });
-                            }}
-                            className="mt-0.5 rounded text-slate-800 focus:ring-slate-500"
-                          />
-                          <div className="text-xs space-y-0.5">
-                            <div className="font-semibold flex items-center space-x-1">
-                              <span>{c.name}</span>
-                              <span className="text-[10px] text-slate-400 font-normal">({c.page})</span>
-                            </div>
-                            <div className="text-[11px] text-slate-500">{c.target}</div>
-                            <div className="text-[10px] text-slate-600 font-medium">
-                              窓口: {c.window} ｜ 必要: {c.requiredCredits}単位
+                          {/* コース概要バー */}
+                          <div className="p-3 flex items-start justify-between">
+                            <label className="flex items-start space-x-2.5 cursor-pointer flex-1">
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={(e) => {
+                                  const updated = e.target.checked
+                                    ? [...userProfile.selectedCourses, c.name]
+                                    : userProfile.selectedCourses.filter((x) => x !== c.name);
+                                  saveProfile({ ...userProfile, selectedCourses: updated });
+                                }}
+                                className="mt-0.5 rounded text-slate-800 focus:ring-slate-500"
+                              />
+                              <div>
+                                <div className="font-bold text-xs sm:text-sm text-slate-900 flex items-center space-x-1.5">
+                                  <span>{c.name}</span>
+                                  <span className="text-[10px] text-slate-400 font-normal">（{c.page}）</span>
+                                </div>
+                                <div className="text-[11px] text-slate-500 mt-0.5">{c.target} ｜ 窓口: {c.window}</div>
+                              </div>
+                            </label>
+
+                            {/* 進捗バッジ */}
+                            <div className="text-right shrink-0 ml-2">
+                              {isChecked && analysis ? (
+                                <div className="space-y-1">
+                                  <span className={`text-[10px] px-2 py-0.5 rounded font-bold ${
+                                    analysis.isFulfilled
+                                      ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                                      : 'bg-amber-100 text-amber-900 border border-amber-300'
+                                  }`}>
+                                    {analysis.isFulfilled ? '修了要件達成' : `修得: ${analysis.earnedCredits} / ${analysis.reqCredits}単位`}
+                                  </span>
+                                  {analysis.missingCompulsory.length > 0 && (
+                                    <div className="text-[10px] text-rose-600 font-medium">
+                                      未修得必修: {analysis.missingCompulsory.length}科目
+                                    </div>
+                                  )}
+                                </div>
+                              ) : (
+                                <span className="text-[10px] text-slate-400">必要: {c.requiredCredits}単位</span>
+                              )}
                             </div>
                           </div>
-                        </label>
+
+                          {/* 選択中の場合、必修・選択必修チェックリストを展開 */}
+                          {isChecked && cDetail && (
+                            <div className="border-t border-slate-200 bg-white p-3 space-y-2">
+                              <div className="text-[11px] font-semibold text-slate-700 flex items-center justify-between">
+                                <span>📋 コース科目チェックリスト（{cDetail.description}）</span>
+                                <span className="text-slate-400 text-[10px]">クリックで修得済みに登録</span>
+                              </div>
+
+                              <div className="divide-y divide-slate-100 border border-slate-200 rounded-lg max-h-48 overflow-y-auto text-xs">
+                                {/* 必修科目 */}
+                                {cDetail.requiredCourses.map((req) => {
+                                  const isComp = userProfile.completedCourses.some((x) => x.name === req.name);
+                                  return (
+                                    <label
+                                      key={req.name}
+                                      className={`p-2 flex items-center justify-between cursor-pointer transition ${
+                                        isComp ? 'bg-slate-50/70' : 'hover:bg-slate-50'
+                                      }`}
+                                    >
+                                      <div className="flex items-center space-x-2">
+                                        <input
+                                          type="checkbox"
+                                          checked={isComp}
+                                          onChange={() => toggleCourseCompleted(req.name, req.credits, 1)}
+                                          className="rounded text-slate-800 focus:ring-slate-500"
+                                        />
+                                        <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-slate-900 text-white">必修</span>
+                                        <span className={`font-medium ${isComp ? 'text-slate-400 line-through' : 'text-slate-800'}`}>
+                                          {req.name}
+                                        </span>
+                                      </div>
+                                      <span className="text-[11px] font-bold text-slate-600">{req.credits}単位</span>
+                                    </label>
+                                  );
+                                })}
+
+                                {/* 選択必修科目 */}
+                                {cDetail.electiveRequiredCourses.map((ele) => {
+                                  const isComp = userProfile.completedCourses.some((x) => x.name === ele.name);
+                                  return (
+                                    <label
+                                      key={ele.name}
+                                      className={`p-2 flex items-center justify-between cursor-pointer transition ${
+                                        isComp ? 'bg-slate-50/70' : 'hover:bg-slate-50'
+                                      }`}
+                                    >
+                                      <div className="flex items-center space-x-2">
+                                        <input
+                                          type="checkbox"
+                                          checked={isComp}
+                                          onChange={() => toggleCourseCompleted(ele.name, ele.credits, 1)}
+                                          className="rounded text-slate-800 focus:ring-slate-500"
+                                        />
+                                        <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-amber-100 text-amber-900 border border-amber-300">
+                                          {ele.group || '選択必修'}
+                                        </span>
+                                        <span className={`font-medium ${isComp ? 'text-slate-400 line-through' : 'text-slate-800'}`}>
+                                          {ele.name}
+                                        </span>
+                                      </div>
+                                      <span className="text-[11px] font-bold text-slate-600">{ele.credits}単位</span>
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       );
                     })}
                   </div>
                 </div>
               )}
 
-              {/* TAB 6: 副専攻選択 */}
+              {/* TAB 6: 全24副専攻選択＆修了必修チェック */}
               {profileTab === 'minors' && (
-                <div className="space-y-3">
-                  <div className="text-xs text-slate-600">
-                    修了を目指す副専攻を選択してください（16単位修得で修了証書。所属学科と同一の副専攻は選択不可）。
+                <div className="space-y-4">
+                  <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 text-xs text-slate-600 leading-relaxed">
+                    全24種類の副専攻（学科副専攻19種・学際副専攻5種）から選択できます。<strong>所定の必修科目と指定群から計16単位</strong>を修得すると卒業時に副専攻修了証書が授与されます。※所属学科と同一の学科副専攻は修了認定不可。
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-80 overflow-y-auto">
+
+                  <div className="space-y-3">
                     {GAKUBU_YORAN_ALL_24_MINORS.map((m) => {
                       const isChecked = userProfile.selectedMinors.includes(m.name);
+                      const mDetail = VERIFIED_MINORS_CURRICULUM[m.name];
+                      const analysis = liveDeficiency.minorsAnalysis.find((x) => x.name === m.name);
+
                       return (
-                        <label
+                        <div
                           key={m.name}
-                          className={`flex items-start space-x-2 p-2.5 rounded-lg border cursor-pointer transition text-xs ${
+                          className={`rounded-xl border transition overflow-hidden ${
                             isChecked
-                              ? 'bg-slate-100 border-slate-400 text-slate-900 shadow-2xs'
-                              : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                              ? 'bg-slate-50/50 border-slate-400 shadow-2xs'
+                              : 'bg-white border-slate-200 hover:border-slate-300'
                           }`}
                         >
-                          <input
-                            type="checkbox"
-                            checked={isChecked}
-                            onChange={(e) => {
-                              const updated = e.target.checked
-                                ? [...userProfile.selectedMinors, m.name]
-                                : userProfile.selectedMinors.filter((x) => x !== m.name);
-                              saveProfile({ ...userProfile, selectedMinors: updated });
-                            }}
-                            className="mt-0.5 rounded text-slate-800 focus:ring-slate-500"
-                          />
-                          <div>
-                            <div className="font-semibold">{m.name}</div>
-                            <div className="text-[10px] text-slate-500">{(m.targetDept || '全学科対象')} ｜ {m.creditsReq}単位必要</div>
+                          {/* 副専攻概要バー */}
+                          <div className="p-3 flex items-start justify-between">
+                            <label className="flex items-start space-x-2.5 cursor-pointer flex-1">
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={(e) => {
+                                  const updated = e.target.checked
+                                    ? [...userProfile.selectedMinors, m.name]
+                                    : userProfile.selectedMinors.filter((x) => x !== m.name);
+                                  saveProfile({ ...userProfile, selectedMinors: updated });
+                                }}
+                                className="mt-0.5 rounded text-slate-800 focus:ring-slate-500"
+                              />
+                              <div>
+                                <div className="font-bold text-xs sm:text-sm text-slate-900 flex items-center space-x-1.5">
+                                  <span>{m.name}</span>
+                                  <span className={`text-[10px] px-1.5 py-0.2 rounded font-medium ${
+                                    m.type === 'department' ? 'bg-blue-50 text-blue-700' : 'bg-purple-50 text-purple-700'
+                                  }`}>
+                                    {m.type === 'department' ? '学科副専攻' : '学際副専攻'}
+                                  </span>
+                                </div>
+                                <div className="text-[11px] text-slate-500 mt-0.5">
+                                  幹事: {m.targetDept || '教務課'} ｜ {mDetail?.description || m.description}
+                                </div>
+                              </div>
+                            </label>
+
+                            {/* 進捗バッジ */}
+                            <div className="text-right shrink-0 ml-2">
+                              {isChecked && analysis ? (
+                                <div className="space-y-1">
+                                  <span className={`text-[10px] px-2 py-0.5 rounded font-bold ${
+                                    analysis.isFulfilled
+                                      ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                                      : 'bg-amber-100 text-amber-900 border border-amber-300'
+                                  }`}>
+                                    {analysis.isFulfilled ? '修了要件達成' : `修得: ${analysis.earnedCredits} / 16単位`}
+                                  </span>
+                                  {analysis.missingCompulsory.length > 0 && (
+                                    <div className="text-[10px] text-rose-600 font-medium">
+                                      未修得必修: {analysis.missingCompulsory.length}科目
+                                    </div>
+                                  )}
+                                </div>
+                              ) : (
+                                <span className="text-[10px] text-slate-400">必要: 16単位</span>
+                              )}
+                            </div>
                           </div>
-                        </label>
+
+                          {/* 警告表示（同一学科・理系制限） */}
+                          {isChecked && analysis && !analysis.isValid && (
+                            <div className="mx-3 mb-2 p-2 bg-rose-50 border border-rose-200 rounded text-rose-700 text-xs">
+                              {analysis.warning}
+                            </div>
+                          )}
+
+                          {/* 選択中の場合、指定科目・必修チェックリストを展開 */}
+                          {isChecked && mDetail && (
+                            <div className="border-t border-slate-200 bg-white p-3 space-y-2">
+                              <div className="text-[11px] font-semibold text-slate-700 flex items-center justify-between">
+                                <span>📋 修了要件科目（{mDetail.description}）</span>
+                                <span className="text-slate-400 text-[10px]">クリックで修得済みに登録</span>
+                              </div>
+
+                              <div className="divide-y divide-slate-100 border border-slate-200 rounded-lg max-h-48 overflow-y-auto text-xs">
+                                {/* 必修科目 */}
+                                {mDetail.requiredCourses.map((req) => {
+                                  const isComp = userProfile.completedCourses.some((x) => x.name === req.name);
+                                  return (
+                                    <label
+                                      key={req.name}
+                                      className={`p-2 flex items-center justify-between cursor-pointer transition ${
+                                        isComp ? 'bg-slate-50/70' : 'hover:bg-slate-50'
+                                      }`}
+                                    >
+                                      <div className="flex items-center space-x-2">
+                                        <input
+                                          type="checkbox"
+                                          checked={isComp}
+                                          onChange={() => toggleCourseCompleted(req.name, req.credits, 1)}
+                                          className="rounded text-slate-800 focus:ring-slate-500"
+                                        />
+                                        <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-slate-900 text-white">必修</span>
+                                        <span className={`font-medium ${isComp ? 'text-slate-400 line-through' : 'text-slate-800'}`}>
+                                          {req.name}
+                                        </span>
+                                      </div>
+                                      <span className="text-[11px] font-bold text-slate-600">{req.credits}単位</span>
+                                    </label>
+                                  );
+                                })}
+
+                                {/* 選択・群指定科目 */}
+                                {mDetail.electiveRequiredCourses.map((ele) => {
+                                  const isComp = userProfile.completedCourses.some((x) => x.name === ele.name);
+                                  return (
+                                    <label
+                                      key={ele.name + (ele.group || '')}
+                                      className={`p-2 flex items-center justify-between cursor-pointer transition ${
+                                        isComp ? 'bg-slate-50/70' : 'hover:bg-slate-50'
+                                      }`}
+                                    >
+                                      <div className="flex items-center space-x-2">
+                                        <input
+                                          type="checkbox"
+                                          checked={isComp}
+                                          onChange={() => toggleCourseCompleted(ele.name, ele.credits, 1)}
+                                          className="rounded text-slate-800 focus:ring-slate-500"
+                                        />
+                                        <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-purple-100 text-purple-900 border border-purple-200">
+                                          {ele.group || '指定科目'}
+                                        </span>
+                                        <span className={`font-medium ${isComp ? 'text-slate-400 line-through' : 'text-slate-800'}`}>
+                                          {ele.name}
+                                        </span>
+                                      </div>
+                                      <span className="text-[11px] font-bold text-slate-600">{ele.credits}単位</span>
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       );
                     })}
                   </div>

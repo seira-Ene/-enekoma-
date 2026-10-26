@@ -1,4 +1,10 @@
 import {
+  VERIFIED_COURSES_CURRICULUM,
+  VERIFIED_MINORS_CURRICULUM,
+  getCourseCurriculum,
+  getMinorCurriculum
+} from '@/app/data/coursesAndMinorsCurriculum';
+import {
   VERIFIED_12_DEPARTMENTS_CURRICULUM,
   getDepartmentCurriculum
 } from '@/app/data/departmentCurriculum';
@@ -397,6 +403,33 @@ function answerLocally(query: string, userProfile?: UserProfileData): string {
       const reqList = info.requiredCourses.slice(0, 10).map((c) => `${c.name}（${c.credits}単位）`).join('、');
       const eleList = info.electiveRequiredCourses.slice(0, 8).map((c) => `${c.name}（${c.credits}単位）`).join('、');
       return `${matchedDept}の専門科目は、必修科目（${info.majorReqCredits}単位）と選択必修科目（${info.majorElectiveCredits}単位）に明確に分かれています。必修科目は${info.requiredSummary}で、${reqList}などすべて修得が必須です。選択必修科目は${info.electiveSummary}で、${eleList}などの指定群から規定単位を選んで修得しますよ！`;
+    }
+  }
+
+  // 0.01 資格コース（司書・学芸員等）の必修・単位数回答
+  const courseKeys = Object.keys(VERIFIED_COURSES_CURRICULUM);
+  const matchedCourse = courseKeys.find((k) => q.includes(k) || (k === '司書コース' && q.includes('司書') && !q.includes('教諭')));
+  if (matchedCourse) {
+    const cInfo = VERIFIED_COURSES_CURRICULUM[matchedCourse];
+    if (cInfo) {
+      if (cInfo.requiredCourses.length > 0 && (q.includes('必修') || q.includes('科目') || q.includes('単位') || q.includes('何単位') || q.includes('要件'))) {
+        const reqList = cInfo.requiredCourses.map((c) => `${c.name}（${c.credits}単位）`).join('、');
+        const eleCount = cInfo.electiveRequiredCourses.length;
+        return `${cInfo.name}は${cInfo.description}。必修科目には、${reqList}があります！履修カルテの「資格コース」タブでチェックしながら進められますよ。`;
+      }
+    }
+  }
+
+  // 0.02 全24副専攻の修了要件・必修科目回答
+  const minorKeys = Object.keys(VERIFIED_MINORS_CURRICULUM);
+  const matchedMinor = minorKeys.find((k) => q.includes(k) || (k.replace('副専攻', '') && q.includes(k.replace('副専攻', '')) && q.includes('副専攻')));
+  if (matchedMinor) {
+    const mInfo = VERIFIED_MINORS_CURRICULUM[matchedMinor];
+    if (mInfo) {
+      const reqList = mInfo.requiredCourses.length > 0
+        ? `必修科目として${mInfo.requiredCourses.map((c) => `${c.name}（${c.credits}単位）`).join('、')}の修得が必要です。`
+        : '特定の全学科必修はなく、指定群から規定単位を選択します。';
+      return `${mInfo.name}は、${mInfo.description}。${reqList}16単位修得で卒業時に修了証書が授与されますよ！`;
     }
   }
 
