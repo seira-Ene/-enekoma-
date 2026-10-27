@@ -113,6 +113,7 @@ const QUICK_CHIPS: QuickChip[] = [
   { label: 'CAP制（年間40単位上限）', query: '年間で何単位まで履修登録できる？（CAP制ルール）', category: 'academic' },
   { label: '教職コースの要件・窓口', query: '教職コースの要件と申請窓口は？', category: 'academic' },
   { label: 'データサイエンス副専攻', query: 'データサイエンス副専攻の要件と科目は？', category: 'academic' },
+  { label: '🔑 APIキー取得・設定', query: 'APIキーの取得方法と設定を教えて', category: 'academic' },
 
   // キャンパス・施設・自販機
   { label: '3306教室の場所', query: '3306', category: 'campus' },
@@ -940,6 +941,10 @@ export default function UnifiedAssistantPage() {
     const text = (queryToSend ?? inputText).trim();
 
     // チャット内での管理者コード判定
+    if (text === 'APIキーの取得方法と設定を教えて' || text === 'APIキー取得' || text === 'APIキー' || text === 'API設定') {
+      setShowApiModal(true);
+    }
+
     if (text === '@Seira04162525') {
       setInputText('');
       setIsAdmin(true);
@@ -1588,18 +1593,19 @@ export default function UnifiedAssistantPage() {
             <span className="hidden sm:inline whitespace-nowrap">管理設定</span>
           </button>
 
-          {/* API連携ステータス (デスクトップのみ) */}
+          {/* API連携・取得ボタン (スマホ・PC両対応) */}
           <button
             onClick={() => setShowApiModal(true)}
-            className={`hidden sm:flex items-center space-x-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md border transition whitespace-nowrap shrink-0 ${
+            className={`flex items-center space-x-1 px-2 py-1.5 sm:px-2.5 sm:py-1.5 text-xs font-medium rounded-md border transition whitespace-nowrap shrink-0 ${
               apiKey.trim() || hasServerKey
                 ? 'bg-slate-50 text-slate-800 border-slate-300 hover:bg-slate-100'
-                : 'bg-amber-50 text-amber-900 border-amber-300 hover:bg-amber-100'
+                : 'bg-amber-100 text-amber-900 border-amber-300 hover:bg-amber-200 font-bold shadow-2xs'
             }`}
-            title="Google Gemini API設定"
+            title="Google Gemini APIキーの取得・設定"
           >
-            <span className={`w-2 h-2 rounded-full ${apiKey.trim() || hasServerKey ? 'bg-emerald-500' : 'bg-amber-500'}`} />
-            <span>{apiKey.trim() || hasServerKey ? 'Gemini連携' : 'API未設定'}</span>
+            <span className={`w-2 h-2 rounded-full shrink-0 ${apiKey.trim() || hasServerKey ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+            <span className="hidden sm:inline">{apiKey.trim() || hasServerKey ? 'Gemini連携中' : 'APIキー設定'}</span>
+            <span className="sm:hidden font-bold text-[11px]">{apiKey.trim() || hasServerKey ? 'AI連携' : 'API取得'}</span>
           </button>
 
           {/* プロフィール設定ボタン */}
@@ -1702,6 +1708,24 @@ export default function UnifiedAssistantPage() {
           </div>
         </div>
       </section>
+
+      {/* API未設定時の案内バナー（スマホでもワンタップで取得・設定可能） */}
+      {!(apiKey.trim() || hasServerKey) && (
+        <div className="bg-gradient-to-r from-amber-50 via-orange-50 to-amber-50 border-b border-amber-200/80 px-3 py-2 text-xs flex items-center justify-between text-amber-900 shrink-0 shadow-2xs">
+          <div className="flex items-center space-x-1.5 min-w-0 mr-2">
+            <span className="text-sm shrink-0">✨</span>
+            <span className="truncate text-[11px] sm:text-xs">
+              <strong>無料のGemini APIキー</strong>を設定すると、回答速度向上＆時間割写真のOCR解析が有効になります
+            </span>
+          </div>
+          <button
+            onClick={() => setShowApiModal(true)}
+            className="px-2.5 py-1 bg-amber-400 hover:bg-amber-500 text-slate-900 font-bold rounded-md text-[11px] whitespace-nowrap shrink-0 shadow-2xs transition active:scale-95"
+          >
+            APIキーを取得
+          </button>
+        </div>
+      )}
 
       {/* ========================================================
           メインコンテンツ：チャット表示エリア
@@ -2529,6 +2553,30 @@ export default function UnifiedAssistantPage() {
                     </div>
                   </div>
 
+                  {/* Google Gemini API設定 */}
+                  <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div>
+                      <div className="text-xs font-bold text-slate-800 flex items-center space-x-1.5">
+                        <span>🤖 Google Gemini API設定</span>
+                        <span className={`text-[10px] px-1.5 py-0.2 rounded font-semibold ${
+                          apiKey.trim() || hasServerKey ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-900'
+                        }`}>
+                          {apiKey.trim() || hasServerKey ? '連携中' : '未設定'}
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-slate-500 mt-0.5">
+                        無料のGemini APIキーを設定すると、回答速度向上と時間割・成績表の写真解析が使えます
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowApiModal(true)}
+                      className="px-3 py-1.5 bg-slate-800 hover:bg-slate-900 text-white rounded text-xs font-semibold whitespace-nowrap shrink-0 self-start sm:self-center cursor-pointer shadow-2xs"
+                    >
+                      {apiKey.trim() || hasServerKey ? 'キーを確認・変更' : 'APIキーを取得・設定'}
+                    </button>
+                  </div>
+
                   {/* 単位・GPA */}
                   <div className="grid grid-cols-2 gap-3 bg-slate-50 p-3 rounded-lg border border-slate-200">
                     <div>
@@ -2920,22 +2968,22 @@ export default function UnifiedAssistantPage() {
               <p>
                 APIキーを設定すると、時間割表や成績表の写真解析、柔軟な言い回しでの質問受付が有効になります。
               </p>
+              <a
+                href="https://aistudio.google.com/app/apikey"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center justify-center space-x-2 w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs sm:text-sm font-bold shadow-xs transition active:scale-98"
+              >
+                <span>🌐 Google AI Studioで無料APIキーを取得する（約1分）</span>
+                <span className="text-base">↗</span>
+              </a>
+
               <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg text-[11px] space-y-1">
-                <div className="font-semibold text-slate-800">🔑 APIキーの取得手順（無料・約1分）:</div>
-                <ol className="list-decimal list-inside space-y-0.5 text-slate-600">
-                  <li>
-                    <a
-                      href="https://aistudio.google.com/app/apikey"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-blue-600 underline font-medium hover:text-blue-800"
-                    >
-                      Google AI Studio（外部サイト）
-                    </a>
-                    にアクセス
-                  </li>
-                  <li>Googleアカウントでログインし「Create API key」をクリック</li>
-                  <li>生成されたキー（AIzaSy...）を下の入力欄に貼り付け</li>
+                <div className="font-semibold text-slate-800">🔑 APIキーの取得手順（完全無料）:</div>
+                <ol className="list-decimal list-inside space-y-1 text-slate-600">
+                  <li>上の青いボタンをタップして「Google AI Studio」を開く</li>
+                  <li>Googleアカウントでログインし「<strong>Create API key</strong>」をタップ</li>
+                  <li>表示されたキー（AIzaSy...）をコピーして、下の枠に貼り付けて「<strong>保存</strong>」</li>
                 </ol>
               </div>
             </div>
