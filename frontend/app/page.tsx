@@ -161,6 +161,8 @@ export default function UnifiedAssistantPage() {
   const [loginPassword, setLoginPassword] = useState('');
 
   // 新規登録フォーム入力
+  const [regApiKey, setRegApiKey] = useState('');
+  const [regKeyTestResult, setRegKeyTestResult] = useState<{ success: boolean; message: string } | null>(null);
   const [regId, setRegId] = useState('');
   const [regName, setRegName] = useState('');
   const [regPassword, setRegPassword] = useState('1234');
@@ -227,7 +229,10 @@ export default function UnifiedAssistantPage() {
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const savedKey = localStorage.getItem('enekoma_gemini_api_key') || process.env.NEXT_PUBLIC_GEMINI_API_KEY || '';
-      if (savedKey) setApiKey(savedKey);
+      if (savedKey) {
+        setApiKey(savedKey);
+        setRegApiKey(savedKey);
+      }
 
       fetch('/api/chat')
         .then((res) => res.json())
@@ -696,6 +701,20 @@ export default function UnifiedAssistantPage() {
   const handleStudentRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthError(null);
+
+    // 0. APIキーの検証と保存（新規ログイン・登録に必須）
+    const effectiveKey = regApiKey.trim() || apiKey.trim();
+    if (!effectiveKey && !hasServerKey) {
+      setAuthError('Gemini APIキーの取得と入力が必要です。「Google AI Studioで無料APIキーを取得する」からキーを取得して貼り付けてください（完全無料・約1分）。');
+      return;
+    }
+    if (effectiveKey) {
+      setApiKey(effectiveKey);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('enekoma_gemini_api_key', effectiveKey);
+      }
+    }
+
     if (!regId.trim()) {
       setAuthError('学籍番号またはIDを入力してください。');
       return;
@@ -718,7 +737,7 @@ export default function UnifiedAssistantPage() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               query: '【新規学生登録】添付された今期の時間割表から開講科目（曜日・時限・科目名・教室・教員・単位数）をすべて読み取り、enrolledCourses配列のJSONを出力してください。',
-              apiKey: apiKey.trim(),
+              apiKey: effectiveKey,
               image: { mimeType: regTimetableFile.mimeType, data: regTimetableFile.data },
               imageType: 'current_timetable',
               userProfile: { department: regDept, grade: regGrade, admissionYear: regAdmissionYear }
@@ -764,7 +783,7 @@ export default function UnifiedAssistantPage() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               query: '【新規学生登録】添付された成績通知書から修得単位数合計、現在GPA、修得済み科目一覧を読み取り、JSONを出力してください。',
-              apiKey: apiKey.trim(),
+              apiKey: effectiveKey,
               image: { mimeType: regTranscriptFile.mimeType, data: regTranscriptFile.data },
               imageType: 'transcript',
               userProfile: { department: regDept, grade: regGrade, admissionYear: regAdmissionYear }
@@ -825,6 +844,7 @@ export default function UnifiedAssistantPage() {
       setRegMinors([]);
       setRegTimetableFile(null);
       setRegTranscriptFile(null);
+      setRegKeyTestResult(null);
     } catch (err: any) {
       setAuthError(`登録中にエラーが発生しました: ${err?.message || '不明なエラー'}`);
     } finally {
@@ -1193,6 +1213,99 @@ export default function UnifiedAssistantPage() {
         }
       ]);
     }
+  };
+
+  // 新規登録時のGemini APIキー接続テスト
+  const handleTestRegApiKey = async () => {
+    const keyToTest = regApiKey.trim() || apiKey.trim();
+    if (!keyToTest && !hasServerKey) {
+      setRegKeyTestResult({ success: false, message: 'Gemini APIキーを入力してください。' });
+      return;
+    }
+    setIsTestingKey(true);
+    setRegKeyTestResult(null);
+
+    let testSucceeded = false;
+    let replyModel = 'Gemini';
+    let errorMessage = '';
+
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          query: '日大文理学部の魅力を1行で教えてください。',
+          apiKey: keyToTest,
+          userProfile
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.source === 'gemini') {
+          testSucceeded = true;
+          replyModel = data.model || 'Gemini Flash';
+        } else if (data?.error) {
+          errorMessage = data.error;
+        } else if (data?.reply?.startsWith('⚠️')) {
+          errorMessage = data.reply;
+        } else {
+          testSucceeded = true;
+        }
+      } else {
+        errorMessage = `HTTP ${res.status}`;
+      }
+    } catch (e: any) {
+      errorMessage = e?.message || 'サーバー未接続';
+    }
+
+    if (!testSucceeded && keyToTest) {
+      try {
+        const directRes = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-lite-latest:generateContent?key=${keyToTest}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            signal: AbortSignal.timeout(6000),
+            body: JSON.stringify({
+              contents: [{ role: 'user', parts: [{ text: '日大文理' }] }]
+            })
+          }
+        );
+        if (directRes.ok) {
+          testSucceeded = true;
+          replyModel = 'gemini-flash-lite-latest';
+        } else {
+          const errData = await directRes.json().catch(() => ({}));
+          const googleMsg = errData?.error?.message || `HTTP ${directRes.status}`;
+          if (directRes.status === 400) {
+            errorMessage = `APIキーが無効です（${googleMsg}）。Google AI Studioで作成されたキー（AIzaSy...）をご確認ください。`;
+          } else if (directRes.status === 429) {
+            errorMessage = 'Gemini APIの利用制限に達しています。数分お待ちいただくか別のキーをお試しください。';
+          } else {
+            errorMessage = `Google APIエラー: ${googleMsg}`;
+          }
+        }
+      } catch (e: any) {
+        errorMessage = `通信エラー: Google APIサーバーに接続できませんでした（${e?.message || 'オフライン'}）`;
+      }
+    }
+
+    if (testSucceeded) {
+      setRegKeyTestResult({
+        success: true,
+        message: `✓ 接続成功！Gemini API（${replyModel}）が正常に応答しました。このまま登録を完了できます。`
+      });
+      setApiKey(keyToTest);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('enekoma_gemini_api_key', keyToTest);
+      }
+    } else {
+      setRegKeyTestResult({
+        success: false,
+        message: errorMessage || 'Geminiへの接続テストに失敗しました。APIキーをご確認ください。'
+      });
+    }
+    setIsTestingKey(false);
   };
 
   const handleSaveApiKey = () => {
@@ -3402,6 +3515,33 @@ export default function UnifiedAssistantPage() {
               {/* TAB 1: ログイン */}
               {authTab === 'login' && (
                 <div className="space-y-4">
+                  {/* 初めてご利用の方（新規ログイン・新規登録）への案内バナー */}
+                  <div className="p-3 bg-gradient-to-r from-indigo-50 via-blue-50 to-purple-50 border border-indigo-200 rounded-xl space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-slate-900 text-xs flex items-center gap-1.5">
+                        <span>✨</span>
+                        <span>初めてご利用の方（新規ログイン）</span>
+                      </span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700 font-bold border border-indigo-200">
+                        無料・約1分
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-600 leading-relaxed">
+                      エネコマを初めて利用される方は、まず<strong>無料のGemini APIキー</strong>を取得して新規登録を行ってください。
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAuthTab('register');
+                        setAuthError(null);
+                        if (!regApiKey && apiKey) setRegApiKey(apiKey);
+                      }}
+                      className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-xs transition flex items-center justify-center gap-1.5"
+                    >
+                      <span>🔑 APIキーを取得して新規登録する ➔</span>
+                    </button>
+                  </div>
+
                   <form onSubmit={handleStudentLogin} className="space-y-3">
                     <div>
                       <label className="block text-xs font-semibold text-slate-700 mb-1">
@@ -3470,7 +3610,98 @@ export default function UnifiedAssistantPage() {
               {/* TAB 2: 新規学生登録 */}
               {authTab === 'register' && (
                 <form onSubmit={handleStudentRegister} className="space-y-4">
-                  {/* 基本情報 */}
+                  {/* ステップ 1: Gemini APIキー連携（必須・完全無料） */}
+                  <div className="p-3.5 bg-gradient-to-br from-indigo-50/90 via-blue-50/70 to-purple-50/50 border border-indigo-200 rounded-xl space-y-2.5 shadow-2xs">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-slate-900 text-xs flex items-center gap-1.5">
+                        <span>🔑</span>
+                        <span>ステップ 1: Gemini APIキーの取得・設定</span>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 font-bold border border-amber-200">
+                          必須
+                        </span>
+                      </span>
+                      {(apiKey || regApiKey.trim()) ? (
+                        <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 flex items-center gap-1">
+                          ✓ 連携準備完了
+                        </span>
+                      ) : (
+                        <span className="text-[11px] font-medium text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
+                          ⚠️ 未設定
+                        </span>
+                      )}
+                    </div>
+
+                    <p className="text-[11px] text-slate-600 leading-relaxed">
+                      エネコマのAI履修相談・時間割OCR解析には、Google公式の<strong>Gemini APIキー</strong>が必要です。<br />
+                      Googleアカウント（大学のGmailや個人のGoogle等）があれば<strong>クレジットカード不要・完全無料（約1分）</strong>で即時発行できます。
+                    </p>
+
+                    <div className="flex flex-col sm:flex-row gap-2 pt-1">
+                      <a
+                        href="https://aistudio.google.com/app/apikey"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-xs transition shrink-0"
+                      >
+                        <span>🌐 Google AI Studioで無料APIキーを取得する (約1分) ↗</span>
+                      </a>
+                      <button
+                        type="button"
+                        onClick={handleTestRegApiKey}
+                        disabled={isTestingKey || (!regApiKey.trim() && !apiKey.trim())}
+                        className="inline-flex items-center justify-center px-3 py-2 bg-white hover:bg-slate-100 border border-indigo-200 text-slate-700 rounded-lg text-xs font-medium transition disabled:opacity-50 shrink-0"
+                      >
+                        {isTestingKey ? 'テスト中...' : '接続テスト'}
+                      </button>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                        取得したGemini APIキーを貼り付け <span className="text-rose-500">*</span>
+                      </label>
+                      <div className="relative">
+                        <input
+                          type={showApiKey ? 'text' : 'password'}
+                          value={regApiKey}
+                          onChange={(e) => {
+                            setRegApiKey(e.target.value);
+                            if (authError) setAuthError(null);
+                          }}
+                          placeholder="AIzaSy...（コピーしたキーを貼り付け）"
+                          className="w-full px-3 py-2 pr-16 border border-indigo-200 rounded-lg text-xs font-mono bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                          required
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowApiKey(!showApiKey)}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-[11px] text-slate-500 hover:text-slate-800 px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200"
+                        >
+                          {showApiKey ? '非表示' : '表示'}
+                        </button>
+                      </div>
+                    </div>
+
+                    {regKeyTestResult && (
+                      <div className={`p-2 rounded-md text-xs border ${
+                        regKeyTestResult.success
+                          ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                          : 'bg-rose-50 border-rose-200 text-rose-800'
+                      }`}>
+                        {regKeyTestResult.message}
+                      </div>
+                    )}
+
+                    <p className="text-[10px] text-slate-500">
+                      🔒 入力されたAPIキーはお使いの端末（ブラウザのlocalStorage）内にのみ安全に保存され、日大外部のサーバーに送信されることはありません。
+                    </p>
+                  </div>
+
+                  {/* ステップ 2: 学生基本情報 */}
+                  <div className="pt-2 border-t border-slate-200">
+                    <label className="block text-xs font-bold text-slate-800 mb-2">
+                      👤 ステップ 2: 学生基本情報
+                    </label>
+                  </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label className="block text-xs font-semibold text-slate-700 mb-1">
@@ -3570,7 +3801,7 @@ export default function UnifiedAssistantPage() {
                   <div className="pt-2 border-t border-slate-200">
                     <div className="flex items-center justify-between mb-1.5">
                       <label className="block text-xs font-semibold text-slate-800">
-                        🎯 取得希望コース・資格課程（複数選択可）
+                        🎯 ステップ 3: 取得希望コース・資格課程（任意）
                       </label>
                       <span className="text-[11px] text-slate-500">任意</span>
                     </div>
