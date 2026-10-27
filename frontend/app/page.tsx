@@ -1510,8 +1510,8 @@ export default function UnifiedAssistantPage() {
           </div>
         </div>
 
-        {/* ヘッダー右側：横スクロール対応（スマホでの見切れ完全防止） */}
-        <div className="flex items-center space-x-1.5 sm:space-x-2 overflow-x-auto no-scrollbar py-0.5 -mr-1 pr-1.5 min-w-0 shrink overscroll-x-contain">
+        {/* ヘッダー右側：PC版ナビゲーション（スマホ版は下部の専用クイックメニューに完全統合） */}
+        <div className="hidden sm:flex items-center space-x-1.5 sm:space-x-2 shrink-0">
           {/* 学生個別アカウント切替・ログインボタン */}
           {currentStudent ? (
             <button
@@ -1642,6 +1642,99 @@ export default function UnifiedAssistantPage() {
           {profileNotification}
         </div>
       )}
+
+      {/* ========================================================
+          スマホ専用クイック操作メニューバー（「CHS EneKoma」と「空き教室検索」の間）
+          ログイン、Gemini連携、取得済み単位数、学生履修プロフィール、要覧早見表、メンテナンス設定
+      ======================================================== */}
+      <nav aria-label="モバイルクイックメニュー" className="sm:hidden bg-slate-100/90 border-b border-slate-200/90 px-2.5 py-1.5 overflow-x-auto no-scrollbar flex items-center space-x-1.5 shrink-0 overscroll-x-contain shadow-2xs">
+        {/* 1. ログイン */}
+        {currentStudent ? (
+          <button
+            onClick={() => {
+              setAuthTab('info');
+              setShowAuthModal(true);
+            }}
+            className="flex items-center space-x-1 px-2.5 py-1.5 bg-slate-900 text-white rounded-lg text-xs font-semibold whitespace-nowrap shrink-0 shadow-2xs active:scale-95 transition"
+          >
+            <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+            <span className="max-w-[80px] truncate">{currentStudent.name}</span>
+          </button>
+        ) : (
+          <button
+            onClick={() => {
+              setAuthTab('login');
+              setShowAuthModal(true);
+            }}
+            className="flex items-center space-x-1 px-2.5 py-1.5 bg-white text-slate-800 border border-slate-300 rounded-lg text-xs font-semibold whitespace-nowrap shrink-0 shadow-2xs active:scale-95 transition hover:bg-slate-50"
+          >
+            <span>🔑</span>
+            <span>ログイン</span>
+          </button>
+        )}
+
+        {/* 2. Gemini連携 */}
+        <button
+          onClick={() => setShowApiModal(true)}
+          className={`flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap shrink-0 border transition shadow-2xs active:scale-95 ${
+            apiKey.trim() || hasServerKey
+              ? 'bg-emerald-50 text-emerald-900 border-emerald-300'
+              : 'bg-amber-100 text-amber-900 border-amber-300'
+          }`}
+        >
+          <span className={`w-2 h-2 rounded-full ${apiKey.trim() || hasServerKey ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+          <span>Gemini連携</span>
+        </button>
+
+        {/* 3. 取得済み単位数（〇/124） */}
+        <button
+          onClick={() => {
+            setProfileTab('completed');
+            setShowProfileModal(true);
+          }}
+          className="flex items-center space-x-1 px-2.5 py-1.5 bg-white text-slate-800 border border-slate-200 rounded-lg text-xs font-medium whitespace-nowrap shrink-0 shadow-2xs active:scale-95 transition hover:bg-slate-50"
+        >
+          <span>🎓</span>
+          <span>取得済み単位数（<strong>{userProfile.currentCredits}</strong>/124）</span>
+        </button>
+
+        {/* 4. 学生履修プロフィール */}
+        <button
+          onClick={() => setShowProfileModal(true)}
+          className="flex items-center space-x-1 px-2.5 py-1.5 bg-white text-slate-800 border border-slate-200 rounded-lg text-xs font-medium whitespace-nowrap shrink-0 shadow-2xs active:scale-95 transition hover:bg-slate-50"
+        >
+          <span>👤</span>
+          <span>学生履修プロフィール</span>
+        </button>
+
+        {/* 5. 日本大学文理学部『学部要覧』早見表 */}
+        <button
+          onClick={() => setShowDrawer(true)}
+          className="flex items-center space-x-1 px-2.5 py-1.5 bg-white text-slate-800 border border-slate-200 rounded-lg text-xs font-medium whitespace-nowrap shrink-0 shadow-2xs active:scale-95 transition hover:bg-slate-50"
+        >
+          <span>📋</span>
+          <span>『学部要覧』早見表</span>
+        </button>
+
+        {/* 6. システムメンテナンス管理設定 */}
+        <button
+          onClick={() => {
+            if (isAdmin) {
+              setShowAdminControlModal(true);
+            } else {
+              setShowAdminLoginModal(true);
+            }
+          }}
+          className={`flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap shrink-0 border transition shadow-2xs active:scale-95 ${
+            isAdmin
+              ? 'bg-amber-400 text-slate-900 border-amber-500 font-bold'
+              : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+          }`}
+        >
+          <span>⚙️</span>
+          <span>システムメンテナンス管理設定</span>
+        </button>
+      </nav>
 
       {/* ========================================================
           空き教室クイック検索ツールバー（人間が使うための直感UI）
