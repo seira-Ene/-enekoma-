@@ -1510,8 +1510,8 @@ export default function UnifiedAssistantPage() {
           </div>
         </div>
 
-        {/* ヘッダー右側：実用的なステータスとナビゲーション */}
-        <div className="flex items-center space-x-1 sm:space-x-2 shrink-0">
+        {/* ヘッダー右側：横スクロール対応（スマホでの見切れ完全防止） */}
+        <div className="flex items-center space-x-1.5 sm:space-x-2 overflow-x-auto no-scrollbar py-0.5 -mr-1 pr-1.5 min-w-0 shrink overscroll-x-contain">
           {/* 学生個別アカウント切替・ログインボタン */}
           {currentStudent ? (
             <button
@@ -1543,6 +1543,20 @@ export default function UnifiedAssistantPage() {
             </button>
           )}
 
+          {/* Gemini連携ボタン (スマホでも見切れないようログインボタンの直後に配置＆スクロール可能) */}
+          <button
+            onClick={() => setShowApiModal(true)}
+            className={`flex items-center space-x-1 px-2.5 py-1.5 text-xs font-semibold rounded-md border transition whitespace-nowrap shrink-0 shadow-2xs ${
+              apiKey.trim() || hasServerKey
+                ? 'bg-slate-50 text-slate-800 border-slate-300 hover:bg-slate-100'
+                : 'bg-amber-100 text-amber-900 border-amber-300 hover:bg-amber-200 font-bold'
+            }`}
+            title="Google Gemini APIキーの取得・設定"
+          >
+            <span className={`w-2 h-2 rounded-full shrink-0 ${apiKey.trim() || hasServerKey ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+            <span className="whitespace-nowrap">Gemini連携</span>
+          </button>
+
           {/* 今期履修中単位バッジ (デスクトップのみ) */}
           <button
             onClick={() => {
@@ -1573,6 +1587,24 @@ export default function UnifiedAssistantPage() {
             </span>
           </button>
 
+          {/* プロフィール設定ボタン */}
+          <button
+            onClick={() => setShowProfileModal(true)}
+            className="w-8 h-8 flex items-center justify-center text-slate-600 hover:text-slate-900 rounded-md hover:bg-slate-100 border border-slate-200 sm:border-transparent transition shrink-0 text-sm"
+            title="学生履修プロフィールの編集"
+          >
+            👤
+          </button>
+
+          {/* 要覧早見表 */}
+          <button
+            onClick={() => setShowDrawer(true)}
+            className="w-8 h-8 flex items-center justify-center text-slate-600 hover:text-slate-900 rounded-md hover:bg-slate-100 border border-slate-200 sm:border-transparent transition shrink-0 text-sm"
+            title="学部要覧の早見表を開く"
+          >
+            📋
+          </button>
+
           {/* 管理者ボタン */}
           <button
             onClick={() => {
@@ -1591,39 +1623,6 @@ export default function UnifiedAssistantPage() {
           >
             <span>⚙️</span>
             <span className="hidden sm:inline whitespace-nowrap">管理設定</span>
-          </button>
-
-          {/* API連携・取得ボタン (スマホ・PC両対応) */}
-          <button
-            onClick={() => setShowApiModal(true)}
-            className={`flex items-center space-x-1 px-2 py-1.5 sm:px-2.5 sm:py-1.5 text-xs font-medium rounded-md border transition whitespace-nowrap shrink-0 ${
-              apiKey.trim() || hasServerKey
-                ? 'bg-slate-50 text-slate-800 border-slate-300 hover:bg-slate-100'
-                : 'bg-amber-100 text-amber-900 border-amber-300 hover:bg-amber-200 font-bold shadow-2xs'
-            }`}
-            title="Google Gemini APIキーの取得・設定"
-          >
-            <span className={`w-2 h-2 rounded-full shrink-0 ${apiKey.trim() || hasServerKey ? 'bg-emerald-500' : 'bg-amber-500'}`} />
-            <span className="hidden sm:inline">{apiKey.trim() || hasServerKey ? 'Gemini連携中' : 'APIキー設定'}</span>
-            <span className="sm:hidden font-bold text-[11px]">{apiKey.trim() || hasServerKey ? 'AI連携' : 'API取得'}</span>
-          </button>
-
-          {/* プロフィール設定ボタン */}
-          <button
-            onClick={() => setShowProfileModal(true)}
-            className="w-8 h-8 flex items-center justify-center text-slate-600 hover:text-slate-900 rounded-md hover:bg-slate-100 border border-slate-200 sm:border-transparent transition shrink-0 text-sm"
-            title="学生履修プロフィールの編集"
-          >
-            👤
-          </button>
-
-          {/* 要覧早見表 */}
-          <button
-            onClick={() => setShowDrawer(true)}
-            className="w-8 h-8 flex items-center justify-center text-slate-600 hover:text-slate-900 rounded-md hover:bg-slate-100 border border-slate-200 sm:border-transparent transition shrink-0 text-sm"
-            title="学部要覧の早見表を開く"
-          >
-            📋
           </button>
 
           {/* 会話履歴クリア (デスクトップ) */}
@@ -1722,7 +1721,7 @@ export default function UnifiedAssistantPage() {
             onClick={() => setShowApiModal(true)}
             className="px-2.5 py-1 bg-amber-400 hover:bg-amber-500 text-slate-900 font-bold rounded-md text-[11px] whitespace-nowrap shrink-0 shadow-2xs transition active:scale-95"
           >
-            APIキーを取得
+            Gemini連携
           </button>
         </div>
       )}
@@ -2573,7 +2572,7 @@ export default function UnifiedAssistantPage() {
                       onClick={() => setShowApiModal(true)}
                       className="px-3 py-1.5 bg-slate-800 hover:bg-slate-900 text-white rounded text-xs font-semibold whitespace-nowrap shrink-0 self-start sm:self-center cursor-pointer shadow-2xs"
                     >
-                      {apiKey.trim() || hasServerKey ? 'キーを確認・変更' : 'APIキーを取得・設定'}
+                      {apiKey.trim() || hasServerKey ? 'Gemini連携を確認' : 'Gemini連携を設定'}
                     </button>
                   </div>
 
