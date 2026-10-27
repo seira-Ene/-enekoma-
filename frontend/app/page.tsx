@@ -1647,7 +1647,19 @@ export default function UnifiedAssistantPage() {
           スマホ専用クイック操作メニューバー（「CHS EneKoma」と「空き教室検索」の間）
           ログイン、Gemini連携、取得済み単位数、学生履修プロフィール、要覧早見表、メンテナンス設定
       ======================================================== */}
-      <nav aria-label="モバイルクイックメニュー" className="sm:hidden bg-slate-100/90 border-b border-slate-200/90 px-2.5 py-1.5 overflow-x-auto no-scrollbar flex items-center space-x-1.5 shrink-0 overscroll-x-contain shadow-2xs">
+      <div className="sm:hidden bg-slate-100/95 border-b border-slate-200 shrink-0 shadow-2xs">
+        {/* スクロール案内表示 */}
+        <div className="flex items-center justify-between px-2.5 pt-1.5 pb-0.5 text-[10px] text-slate-500 font-medium">
+          <span className="text-slate-700 font-bold flex items-center space-x-1">
+            <span>⚡</span>
+            <span>クイックメニュー</span>
+          </span>
+          <span className="text-slate-500 flex items-center space-x-1 bg-white/80 border border-slate-200/80 px-1.5 py-0.5 rounded-full text-[10px]">
+            <span>⇄ 左右にスクロールしてね</span>
+            <span className="animate-pulse">👉</span>
+          </span>
+        </div>
+        <nav aria-label="モバイルクイックメニュー" className="px-2.5 py-1.5 overflow-x-auto no-scrollbar flex items-center space-x-1.5 overscroll-x-contain">
         {/* 1. ログイン */}
         {currentStudent ? (
           <button
@@ -1734,7 +1746,8 @@ export default function UnifiedAssistantPage() {
           <span>⚙️</span>
           <span>システムメンテナンス管理設定</span>
         </button>
-      </nav>
+        </nav>
+      </div>
 
       {/* ========================================================
           空き教室クイック検索ツールバー（人間が使うための直感UI）
